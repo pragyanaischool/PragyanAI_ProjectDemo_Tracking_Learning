@@ -109,6 +109,12 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive.file"
 ]
 
+# --- Centralized Sheet Keys ---
+USERS_ADMIN_SPREADSHEET_KEY = "127cStafn9skL4LAcLGYe6bgOd43o3rOU5AuqaxcB8R4"
+EVENTS_SPREADSHEET_KEY = "1RBF58bTPuWgCH-WpgTKlqxUz3yK84G7MN8xQa7BowCM"
+EVENT_TEMPLATE_SPREADSHEET_KEY = "1ha-zXkVS-YtTgJmYYqVUXPeZ0TXO-6sblkRkepMXW5U"
+
+
 @st.cache_resource
 def connect_to_google_sheets():
     """Establishes a connection to the Google Sheets API."""
@@ -121,30 +127,25 @@ def connect_to_google_sheets():
         st.error(f"Failed to connect to Google Sheets. Ensure your secrets are configured correctly. Error: {e}")
         return None
 
-# --- Centralized Sheet Naming ---
-USERS_SHEET_NAME = "Users" 
-EVENTS_MASTER_SHEET_NAME = "Project_Demo_Events" 
-EVENT_TEMPLATE_SHEET_ID = st.secrets.get("gcp_service_account", {}).get("event_template_sheet_id", "YOUR_TEMPLATE_SHEET_ID_HERE")
-
 # --- HELPER FUNCTIONS ---
-def get_sheet(client, sheet_name):
-    """Safely opens a sheet by name."""
+def get_worksheet_by_key(client, key, worksheet_name):
+    """Safely opens a worksheet by spreadsheet key and worksheet name."""
     try:
-        return client.open(sheet_name).sheet1
+        spreadsheet = client.open_by_key(key)
+        return spreadsheet.worksheet(worksheet_name)
     except gspread.exceptions.SpreadsheetNotFound:
-        st.error(f"Spreadsheet '{sheet_name}' not found. Please create it and share it with the service account.")
+        st.error(f"Spreadsheet with key '{key}' not found. Please check the key and sharing settings.")
+        return None
+    except gspread.exceptions.WorksheetNotFound:
+        st.error(f"Worksheet '{worksheet_name}' not found in the spreadsheet.")
+        return None
+    except Exception as e:
+        st.error(f"An error occurred while accessing the sheet: {e}")
         return None
 
-def get_sheet_by_id(client, sheet_id):
-    """Opens a sheet by its ID."""
-    try:
-        return client.open_by_key(sheet_id)
-    except gspread.exceptions.SpreadsheetNotFound:
-        st.error(f"Spreadsheet with ID '{sheet_id}' not found.")
-        return None
 
 def hash_password(password):
-    return hashlib.sha26(str.encode(password)).hexdigest()
+    return hashlib.sha256(str.encode(password)).hexdigest()
 
 def check_password(hashed_password, user_password):
     return hashed_password == hashlib.sha256(str.encode(user_password)).hexdigest()
@@ -153,7 +154,7 @@ def check_password(hashed_password, user_password):
 def create_user(details):
     client = connect_to_google_sheets()
     if not client: return False, "Database connection failed."
-    users_sheet = get_sheet(client, USERS_SHEET_NAME)
+    users_sheet = get_worksheet_by_key(client, USERS_ADMIN_SPREADSHEET_KEY, "User")
     if not users_sheet: return False, "Users sheet not accessible."
 
     users_df = pd.DataFrame(users_sheet.get_all_records(head=1))
@@ -173,7 +174,7 @@ def create_user(details):
 def authenticate_user(login_identifier, password):
     client = connect_to_google_sheets()
     if not client: return None
-    users_sheet = get_sheet(client, USERS_SHEET_NAME)
+    users_sheet = get_worksheet_by_key(client, USERS_ADMIN_SPREADSHEET_KEY, "User")
     if not users_sheet: return None
     
     users_df = pd.DataFrame(users_sheet.get_all_records(head=1))
@@ -191,33 +192,59 @@ def authenticate_user(login_identifier, password):
                 return "pending"
     return None
 
+def authenticate_admin(username, password):
+    client = connect_to_google_sheets()
+    if not client: return None
+    admin_sheet = get_worksheet_by_key(client, USERS_ADMIN_SPREADSHEET_KEY, "Admin")
+    if not admin_sheet: return None
+    
+    admins_df = pd.DataFrame(admin_sheet.get_all_records(head=1))
+    if admins_df.empty: return None
+
+    admin_record = admins_df[admins_df['UserName'] == username]
+    if not admin_record.empty:
+        admin_data = admin_record.iloc[0]
+        # Assuming admin passwords are NOT hashed in the sheet for simplicity, but hashing is recommended
+        if admin_data['Password'] == password:
+            return admin_data
+    return None
+
 # --- UI PAGES ---
 def show_login_page():
-    st.image("PragyanAI_Transperent.png")
+    try:
+        st.image("PragyanAI_Transperent.png", width=150)
+    except Exception:
+        st.warning("Logo image 'PragyanAI_Transperent.png' not found. Please add it to the root directory.")
+        
     st.title("🏆 PragyanAI Project Demo Tracking Platform")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1,2,1])
+
     with col2:
         st.markdown('<div class="card">', unsafe_allow_html=True)
-        login_tab, signup_tab = st.tabs(["**Sign In**", "**Sign Up**"])
-        with login_tab:
+        user_tab, signup_tab, admin_tab = st.tabs(["**Student/Lead Sign In**", "**Sign Up**", "**Admin Sign In**"])
+
+        with user_tab:
             with st.form("login_form"):
                 st.subheader("Login to your Account")
                 login_identifier = st.text_input("Username or Phone Number", key="login_id")
                 login_password = st.text_input("Password", type="password", key="login_pass")
                 st.markdown("<br>", unsafe_allow_html=True)
                 login_button = st.form_submit_button("Login", use_container_width=True)
+
                 if login_button:
                     user_data = authenticate_user(login_identifier, login_password)
                     if user_data is not None and user_data != "pending":
                         st.session_state['logged_in'] = True
                         st.session_state['username'] = user_data['UserName']
                         st.session_state['role'] = user_data['Role(Student/Lead)']
+                        st.session_state['is_admin'] = False
                         st.session_state['user_details'] = user_data.to_dict()
                         st.rerun()
                     elif user_data is None:
-                        st.error("Invalid credentials.")    
+                        st.error("Invalid credentials.")
+        
         with signup_tab:
             with st.form("signup_form"):
                 st.subheader("Create a New Account")
@@ -235,7 +262,9 @@ def show_login_page():
                 signup_button = st.form_submit_button("Create Account", use_container_width=True)
 
                 if signup_button:
-                    if password != confirm_password:
+                    if not all([full_name, college, branch, roll_no, pass_year, phone_login, username, password]):
+                        st.error("Please fill all the fields.")
+                    elif password != confirm_password:
                         st.error("Passwords do not match.")
                     else:
                         details = {
@@ -249,6 +278,26 @@ def show_login_page():
                             st.success(message)
                         else:
                             st.error(message)
+
+        with admin_tab:
+            with st.form("admin_login_form"):
+                st.subheader("Admin Login")
+                admin_user = st.text_input("Admin Username", key="admin_user")
+                admin_pass = st.text_input("Admin Password", type="password", key="admin_pass")
+                st.markdown("<br>", unsafe_allow_html=True)
+                admin_login_button = st.form_submit_button("Admin Login", use_container_width=True)
+                if admin_login_button:
+                    admin_data = authenticate_admin(admin_user, admin_pass)
+                    if admin_data is not None:
+                        st.session_state['logged_in'] = True
+                        st.session_state['username'] = admin_data['UserName']
+                        st.session_state['role'] = 'Admin'
+                        st.session_state['is_admin'] = True
+                        st.session_state['user_details'] = admin_data.to_dict()
+                        st.rerun()
+                    else:
+                        st.error("Invalid Admin credentials.")
+
         st.markdown('</div>', unsafe_allow_html=True)
 
 def show_admin_dashboard():
@@ -262,7 +311,7 @@ def show_admin_dashboard():
     with tab1:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Approve New Users")
-        users_sheet = get_sheet(client, USERS_SHEET_NAME)
+        users_sheet = get_worksheet_by_key(client, USERS_ADMIN_SPREADSHEET_KEY, "User")
         if not users_sheet: return
         users_df = pd.DataFrame(users_sheet.get_all_records(head=1))
         
@@ -306,7 +355,7 @@ def show_admin_dashboard():
     with tab2:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Approve New Project Demo Events")
-        events_sheet = get_sheet(client, EVENTS_MASTER_SHEET_NAME)
+        events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
         if not events_sheet: return
         events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
         
@@ -315,7 +364,7 @@ def show_admin_dashboard():
             event_to_approve = st.selectbox("Select event to approve", options=pending_events['ProjectDemo_Event_Name'].tolist())
             if st.button("Approve Event"):
                 cell = events_sheet.find(event_to_approve)
-                events_sheet.update_cell(cell.row, 6, 'Yes') # Column F
+                events_sheet.update_cell(cell.row, 6, 'Yes') # Column F in Project_Demos_List
                 st.success(f"Event '{event_to_approve}' approved.")
                 st.rerun()
         else:
@@ -331,8 +380,8 @@ def show_admin_dashboard():
 
             with st.form("admin_modify_event"):
                 whatsapp_link = st.text_input("WhatsApp Link", value=event_details.get('WhatsappLink', ''))
-                eval_form_link = st.text_input("Project Evaluation Google Form Link", value=event_details.get('Project_Evaluation_GoogleFormLink', ''))
-                sheet_link = st.text_input("Project Demo Sheet Link", value=event_details.get('Project_Demo_Sheet_Link', ''))
+                # eval_form_link = st.text_input("Project Evaluation Google Form Link", value=event_details.get('Project_Evaluation_GoogleFormLink', ''))
+                # sheet_link = st.text_input("Project Demo Sheet Link", value=event_details.get('Project_Demo_Sheet_Link', ''))
                 conducted_status = st.selectbox("Conducted Status", options=["No", "Yes"], index=["No", "Yes"].index(event_details.get('Conducted_State', 'No')))
                 
                 submitted = st.form_submit_button("Update Event Details")
@@ -340,7 +389,7 @@ def show_admin_dashboard():
                     cell = events_sheet.find(event_to_modify)
                     events_sheet.update_cell(cell.row, 8, whatsapp_link) # Column H
                     events_sheet.update_cell(cell.row, 7, conducted_status) # Column G
-                    events_sheet.update_cell(cell.row, 9, sheet_link)
+                    # events_sheet.update_cell(cell.row, 9, sheet_link)
                     st.success("Event updated.")
                     st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
@@ -367,25 +416,32 @@ def show_leader_dashboard():
 
             submitted = st.form_submit_button("Submit for Approval")
             if submitted:
-                with st.spinner("Creating event and new sheet..."):
-                    try:
-                        new_sheet = client.copy(EVENT_TEMPLATE_SHEET_ID, title=f"Event - {event_name}", copy_permissions=True)
-                        events_sheet = get_sheet(client, EVENTS_MASTER_SHEET_NAME)
-                        new_event_data = [
-                            str(demo_date), event_name, domain, description, external_url,
-                            'No', 'No', whatsapp, new_sheet.url
-                        ]
-                        events_sheet.append_row(new_event_data)
-                        st.success("Event submitted for admin approval!")
-                        st.info(f"A new Google Sheet for this event has been created: {new_sheet.url}")
-                    except Exception as e:
-                        st.error(f"An error occurred: {e}. Ensure the template sheet ID is correct in your secrets.")
+                if not all([event_name, demo_date, domain, description]):
+                    st.error("Please fill all required fields.")
+                else:
+                    with st.spinner("Creating event and new sheet..."):
+                        try:
+                            # Copy the template spreadsheet
+                            new_sheet_copy = client.copy(EVENT_TEMPLATE_SPREADSHEET_KEY, title=f"Event - {event_name}", copy_permissions=True)
+                            
+                            # Get the main events list sheet
+                            events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
+                            
+                            new_event_data = [
+                                str(demo_date), event_name, domain, description, external_url,
+                                'No', 'No', whatsapp, new_sheet_copy.url
+                            ]
+                            events_sheet.append_row(new_event_data)
+                            st.success("Event submitted for admin approval!")
+                            st.info(f"A new Google Sheet for this event has been created: {new_sheet_copy.url}")
+                        except Exception as e:
+                            st.error(f"An error occurred: {e}. Ensure the template sheet ID is correct and shared with the service account.")
         st.markdown('</div>', unsafe_allow_html=True)
 
     with tab2:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.header("Your Created Events")
-        events_sheet = get_sheet(client, EVENTS_MASTER_SHEET_NAME)
+        events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
         if not events_sheet: return
         events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
         # A more robust check for leader's events might be needed if names are not unique
@@ -400,7 +456,7 @@ def show_student_dashboard():
     client = connect_to_google_sheets()
     if not client: return
     
-    events_sheet = get_sheet(client, EVENTS_MASTER_SHEET_NAME)
+    events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
     if not events_sheet: return
     events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
     
@@ -423,10 +479,11 @@ def show_student_dashboard():
 
         try:
             event_workbook = client.open_by_url(sheet_url)
-            submission_sheet = event_workbook.worksheet("CurrentState")
+            # Corrected worksheet name
+            submission_sheet = event_workbook.worksheet("Project_List") 
             submissions_df = pd.DataFrame(submission_sheet.get_all_records(head=1))
         except Exception as e:
-            st.error(f"Could not open the event sheet. Please check the URL and permissions. Error: {e}")
+            st.error(f"Could not open the event sheet. Please check the URL, permissions, and ensure a 'Project_List' worksheet exists. Error: {e}")
             return
             
         my_submission = submissions_df[submissions_df['StudentFullName'] == st.session_state['user_details']['FullName']]
@@ -448,11 +505,12 @@ def show_student_dashboard():
             submitted = st.form_submit_button("Submit / Update Enrollment")
             if submitted:
                 user_info = st.session_state['user_details']
+                # Data should match the columns in the 'Project_List' sheet
                 submission_data = [
                     user_info['FullName'], user_info['CollegeName'], user_info['Branch'],
                     project_title, description, keywords, tools_list,
                     report_link, ppt_link, github_link, youtube_link, linkedin_link,
-                    'No', '', '', '', '', '', '', ''
+                    'No', '', '', '', '', '', '', '' # Default values for remaining columns
                 ]
                 
                 if not my_submission.empty:
@@ -473,7 +531,7 @@ def show_peer_learning_page():
     
     @st.cache_data(ttl=600)
     def load_all_projects(_client):
-        events_sheet = get_sheet(_client, EVENTS_MASTER_SHEET_NAME)
+        events_sheet = get_worksheet_by_key(_client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
         if not events_sheet: return pd.DataFrame()
         events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
         
@@ -483,7 +541,8 @@ def show_peer_learning_page():
             if sheet_url:
                 try:
                     workbook = _client.open_by_url(sheet_url)
-                    submissions = pd.DataFrame(workbook.worksheet("CurrentState").get_all_records(head=1))
+                    # Corrected worksheet name
+                    submissions = pd.DataFrame(workbook.worksheet("Project_List").get_all_records(head=1))
                     if not submissions.empty:
                         submissions['EventName'] = event['ProjectDemo_Event_Name']
                         all_projects.append(submissions)
@@ -570,13 +629,14 @@ def show_peer_learning_page():
                     st.error(f"Failed to process the document. Error: {e}")
     st.markdown('</div>', unsafe_allow_html=True)
 
+
 def show_evaluator_ui():
     st.title("📝 PragyanAI - Peer Project Evaluation")
     
     client = connect_to_google_sheets()
     if not client: return
     
-    events_sheet = get_sheet(client, EVENTS_MASTER_SHEET_NAME)
+    events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
     if not events_sheet: return
     events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
     
@@ -591,12 +651,16 @@ def show_evaluator_ui():
     if event_choice:
         event_details = active_events[active_events['ProjectDemo_Event_Name'] == event_choice].iloc[0]
         sheet_url = event_details.get('Project_Demo_Sheet_Link')
-        if not sheet_url: return
+        if not sheet_url: 
+            st.error("Event sheet URL is missing.")
+            return
         
         try:
             workbook = client.open_by_url(sheet_url)
-            submissions_df = pd.DataFrame(workbook.worksheet("CurrentState").get_all_records(head=1))
-        except Exception:
+            # Corrected worksheet name
+            submissions_df = pd.DataFrame(workbook.worksheet("Project_List").get_all_records(head=1))
+        except Exception as e:
+            st.error(f"Could not open the event sheet. Please check the URL, permissions, and ensure a 'Project_List' worksheet exists. Error: {e}")
             return
 
         candidate = st.selectbox("Select Candidate to Evaluate", options=submissions_df['StudentFullName'].tolist())
@@ -612,6 +676,7 @@ def show_evaluator_ui():
                 submitted = st.form_submit_button("Submit Evaluation")
                 if submitted:
                     avg_score = (score1 + score2 + score3 + score4) / 4
+                    # Corrected worksheet name
                     eval_sheet = workbook.worksheet("ProjectEvaluation")
                     eval_data = [
                         candidate,
@@ -634,11 +699,6 @@ def main():
         show_login_page()
     else:
         with st.sidebar:
-            # --- LOGO ---
-            # To add your own logo:
-            # 1. Convert your 'PragyanAI_Transperent.png' to a base64 string.
-            #    You can use an online converter: https://www.base64-image.de/
-            # 2. Replace the entire string assigned to 'logo_base64' with your string.
             logo_base64 = "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"
 
             st.markdown(f"""
@@ -661,7 +721,7 @@ def main():
 
             # Navigation
             if st.session_state.get('role') == 'Admin':
-                page = st.sidebar.radio("Navigation", ["Admin Dashboard", "Leader Dashboard"])
+                page = st.sidebar.radio("Navigation", ["Admin Dashboard", "Leader Dashboard", "Peer Learning"])
             elif st.session_state.get('role') == 'Lead':
                 page = st.sidebar.radio("Navigation", ["Leader Dashboard", "Student Dashboard", "Peer Learning", "Evaluate Peer Project"])
             else: # Student
@@ -673,16 +733,26 @@ def main():
                 st.rerun()
 
         # Page rendering
-        if page == "Admin Dashboard":
+        if 'page' not in st.session_state:
+            st.session_state.page = "Student Dashboard" if st.session_state.get('role') in ['Student', 'Lead'] else "Admin Dashboard"
+
+        if st.session_state.page == "Admin Dashboard":
             show_admin_dashboard()
-        elif page == "Leader Dashboard":
+        elif st.session_state.page == "Leader Dashboard":
             show_leader_dashboard()
-        elif page == "Student Dashboard":
+        elif st.session_state.page == "Student Dashboard":
             show_student_dashboard()
-        elif page == "Peer Learning":
+        elif st.session_state.page == "Peer Learning":
             show_peer_learning_page()
-        elif page == "Evaluate Peer Project":
+        elif st.session_state.page == "Evaluate Peer Project":
             show_evaluator_ui()
+        else: # Default page
+            if st.session_state.get('role') in ['Student', 'Lead']:
+                show_student_dashboard()
+            else:
+                show_admin_dashboard()
+
 
 if __name__ == "__main__":
     main()
+    
