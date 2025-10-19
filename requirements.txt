@@ -14,7 +14,7 @@ langchain==0.3.27
 langchain-core==0.3.72
 langchain-community==0.3.3
 langchain-text-splitters==0.3.9
-langsmith==0.1.130  # or adjust if conflicts appear
+langsmith==0.3.45  # or adjust if conflicts appear
 langchain-groq 
 #langchain-text-splitters
 faiss-cpu
