@@ -123,17 +123,18 @@ def connect_to_google_sheets():
     It first tries to use Streamlit's secrets management (for deployment)
     and falls back to a local JSON file (for local development).
     """
+    creds = None
     try:
         # Try connecting using Streamlit secrets (for deployment)
         creds_json = dict(st.secrets["gcp_service_account"])
         creds = Credentials.from_service_account_info(creds_json, scopes=SCOPES)
-        st.info("Connecting to Google Sheets using Streamlit Secrets.")
+        # st.info("Connecting to Google Sheets using Streamlit Secrets.")
     except Exception:
         # Fallback to a local file if secrets are not found (for local development)
         local_creds_path = "gcp_creds.json"
         if os.path.exists(local_creds_path):
             creds = Credentials.from_service_account_file(local_creds_path, scopes=SCOPES)
-            st.info("Connecting to Google Sheets using local 'gcp_creds.json' file.")
+            # st.info("Connecting to Google Sheets using local 'gcp_creds.json' file.")
         else:
             st.error("Google Sheets credentials not found. Please configure your Streamlit secrets or add a 'gcp_creds.json' file.")
             return None
@@ -198,6 +199,12 @@ def authenticate_user(login_identifier, password):
     users_df = pd.DataFrame(users_sheet.get_all_records(head=1))
     if users_df.empty: return None
 
+    # Defensive check for required columns
+    required_cols = ['UserName', 'Phone(login)', 'Password', 'Status(Approved/NotApproved)']
+    if not all(col in users_df.columns for col in required_cols):
+        st.error("The 'User' sheet is missing required columns. Please check the sheet headers.")
+        return None
+
     user_record_df = users_df[(users_df['UserName'] == login_identifier) | (users_df['Phone(login)'].astype(str) == str(login_identifier))]
     
     if not user_record_df.empty:
@@ -218,6 +225,11 @@ def authenticate_admin(username, password):
     
     admins_df = pd.DataFrame(admin_sheet.get_all_records(head=1))
     if admins_df.empty: return None
+
+    # Defensive check for required columns
+    if 'UserName' not in admins_df.columns or 'Password' not in admins_df.columns:
+        st.error("The 'Admin' sheet is missing required columns ('UserName', 'Password').")
+        return None
 
     admin_record = admins_df[admins_df['UserName'] == username]
     if not admin_record.empty:
@@ -333,7 +345,19 @@ def show_admin_dashboard():
         if not users_sheet: return
         users_df = pd.DataFrame(users_sheet.get_all_records(head=1))
         
-        pending_users = users_df[users_df['Status(Approved/NotApproved)'] == 'NotApproved']
+        # --- FIX STARTS HERE ---
+        # Check if the critical columns exist before proceeding.
+        status_col = 'Status(Approved/NotApproved)'
+        role_col = 'Role(Student/Lead)'
+        
+        if status_col not in users_df.columns or role_col not in users_df.columns:
+            st.error(f"Critical Error: Your 'User' sheet is missing required columns.")
+            st.info(f"Please ensure the headers '{status_col}' and '{role_col}' exist exactly as written.")
+            st.write("Columns found in your sheet:", users_df.columns.tolist())
+            return # Stop the function to prevent crashing.
+        # --- FIX ENDS HERE ---
+
+        pending_users = users_df[users_df[status_col] == 'NotApproved']
         if not pending_users.empty:
             users_to_approve = st.multiselect("Select users to approve", options=pending_users['UserName'].tolist())
             if st.button("Approve Selected Users"):
@@ -348,8 +372,8 @@ def show_admin_dashboard():
 
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Manage Leaders")
-        approved_users = users_df[users_df['Status(Approved/NotApproved)'] == 'Approved']
-        students = approved_users[approved_users['Role(Student/Lead)'] == 'Student']
+        approved_users = users_df[users_df[status_col] == 'Approved']
+        students = approved_users[approved_users[role_col] == 'Student']
         if not students.empty:
             user_to_make_leader = st.selectbox("Select user to promote to Leader", options=students['UserName'].tolist())
             if st.button("Promote to Leader"):
@@ -377,6 +401,10 @@ def show_admin_dashboard():
         if not events_sheet: return
         events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
         
+        if 'Approved_Status' not in events_df.columns:
+            st.error("Critical Error: 'Approved_Status' column not found in 'Project_Demos_List' sheet.")
+            return
+
         pending_events = events_df[events_df['Approved_Status'] == 'No']
         if not pending_events.empty:
             event_to_approve = st.selectbox("Select event to approve", options=pending_events['ProjectDemo_Event_Name'].tolist())
@@ -391,6 +419,10 @@ def show_admin_dashboard():
 
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Modify Existing Event")
+        if 'ProjectDemo_Event_Name' not in events_df.columns:
+            st.error("Critical Error: 'ProjectDemo_Event_Name' column not found in 'Project_Demos_List' sheet.")
+            return
+            
         all_events = events_df['ProjectDemo_Event_Name'].tolist()
         if all_events:
             event_to_modify = st.selectbox("Select event to modify", options=all_events, key="modify_event_select")
@@ -398,8 +430,6 @@ def show_admin_dashboard():
 
             with st.form("admin_modify_event"):
                 whatsapp_link = st.text_input("WhatsApp Link", value=event_details.get('WhatsappLink', ''))
-                # eval_form_link = st.text_input("Project Evaluation Google Form Link", value=event_details.get('Project_Evaluation_GoogleFormLink', ''))
-                # sheet_link = st.text_input("Project Demo Sheet Link", value=event_details.get('Project_Demo_Sheet_Link', ''))
                 conducted_status = st.selectbox("Conducted Status", options=["No", "Yes"], index=["No", "Yes"].index(event_details.get('Conducted_State', 'No')))
                 
                 submitted = st.form_submit_button("Update Event Details")
@@ -407,7 +437,6 @@ def show_admin_dashboard():
                     cell = events_sheet.find(event_to_modify)
                     events_sheet.update_cell(cell.row, 8, whatsapp_link) # Column H
                     events_sheet.update_cell(cell.row, 7, conducted_status) # Column G
-                    # events_sheet.update_cell(cell.row, 9, sheet_link)
                     st.success("Event updated.")
                     st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
@@ -504,7 +533,9 @@ def show_student_dashboard():
             st.error(f"Could not open the event sheet. Please check the URL, permissions, and ensure a 'Project_List' worksheet exists. Error: {e}")
             return
             
-        my_submission = submissions_df[submissions_df['StudentFullName'] == st.session_state['user_details']['FullName']]
+        my_submission = pd.DataFrame()
+        if 'StudentFullName' in submissions_df.columns:
+            my_submission = submissions_df[submissions_df['StudentFullName'] == st.session_state['user_details']['FullName']]
         
         with st.form("enrollment_form"):
             st.header(f"Your Submission for: '{event_choice}'")
@@ -533,7 +564,9 @@ def show_student_dashboard():
                 
                 if not my_submission.empty:
                     cell = submission_sheet.find(user_info['FullName'])
-                    submission_sheet.update(f'A{cell.row}', [submission_data])
+                    # This needs to update the entire row, not just one cell. gspread update is tricky with whole rows.
+                    # A safer way is to delete and re-append, but let's try updating a range.
+                    submission_sheet.update(f'A{cell.row}:T{cell.row}', [submission_data])
                     st.success("Your project details have been updated!")
                 else:
                     submission_sheet.append_row(submission_data)
@@ -575,26 +608,30 @@ def show_peer_learning_page():
         st.warning("No projects found across any events.")
         return
 
+    if 'ProjectTitle' not in projects_df.columns:
+        st.error("Could not find 'ProjectTitle' column in the aggregated project data. Check your 'Project_List' sheets.")
+        return
+
     project_choice = st.selectbox("Select a project to view", options=projects_df['ProjectTitle'].unique())
     st.markdown('<div class="card">', unsafe_allow_html=True)
     if project_choice:
         project_details = projects_df[projects_df['ProjectTitle'] == project_choice].iloc[0]
         
-        st.header(project_details['ProjectTitle'])
-        st.caption(f"By {project_details['StudentFullName']} from {project_details['CollegeName']} | Event: {project_details['EventName']}")
-        st.write(f"**Description:** {project_details['Description']}")
+        st.header(project_details.get('ProjectTitle', 'N/A'))
+        st.caption(f"By {project_details.get('StudentFullName', 'N/A')} from {project_details.get('CollegeName', 'N/A')} | Event: {project_details.get('EventName', 'N/A')}")
+        st.write(f"**Description:** {project_details.get('Description', 'No description available.')}")
         
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            if project_details['ReportLink']: st.link_button("📄 View Report", project_details['ReportLink'])
+            if project_details.get('ReportLink'): st.link_button("📄 View Report", project_details['ReportLink'])
         with c2:
-            if project_details['PresentationLink']: st.link_button("🖥️ View Presentation", project_details['PresentationLink'])
+            if project_details.get('PresentationLink'): st.link_button("🖥️ View Presentation", project_details['PresentationLink'])
         with c3:
-            if project_details['GitHubLink']: st.link_button("💻 View Code", project_details['GitHubLink'])
+            if project_details.get('GitHubLink'): st.link_button("💻 View Code", project_details['GitHubLink'])
         with c4:
-             if project_details['Linkedin_Project_Post_Link']: st.link_button("🔗 LinkedIn Post", project_details['Linkedin_Project_Post_Link'])
+             if project_details.get('Linkedin_Project_Post_Link'): st.link_button("🔗 LinkedIn Post", project_details['Linkedin_Project_Post_Link'])
 
-        if project_details['YouTubeLink']: 
+        if project_details.get('YouTubeLink'): 
             st.video(project_details['YouTubeLink'])
         
         st.markdown("---")
@@ -680,6 +717,10 @@ def show_evaluator_ui():
         except Exception as e:
             st.error(f"Could not open the event sheet. Please check the URL, permissions, and ensure a 'Project_List' worksheet exists. Error: {e}")
             return
+        
+        if 'StudentFullName' not in submissions_df.columns:
+            st.error("Critical Error: 'StudentFullName' column not in the event's 'Project_List' sheet.")
+            return
 
         candidate = st.selectbox("Select Candidate to Evaluate", options=submissions_df['StudentFullName'].tolist())
         
@@ -751,24 +792,25 @@ def main():
                 st.rerun()
 
         # Page rendering
-        if 'page' not in st.session_state:
-            st.session_state.page = "Student Dashboard" if st.session_state.get('role') in ['Student', 'Lead'] else "Admin Dashboard"
+        page = st.session_state.get('page')
 
-        if st.session_state.page == "Admin Dashboard":
+        if page == "Admin Dashboard":
             show_admin_dashboard()
-        elif st.session_state.page == "Leader Dashboard":
+        elif page == "Leader Dashboard":
             show_leader_dashboard()
-        elif st.session_state.page == "Student Dashboard":
+        elif page == "Student Dashboard":
             show_student_dashboard()
-        elif st.session_state.page == "Peer Learning":
+        elif page == "Peer Learning":
             show_peer_learning_page()
-        elif st.session_state.page == "Evaluate Peer Project":
+        elif page == "Evaluate Peer Project":
             show_evaluator_ui()
         else: # Default page
             if st.session_state.get('role') in ['Student', 'Lead']:
                 show_student_dashboard()
-            else:
+            elif st.session_state.get('role') == 'Admin':
                 show_admin_dashboard()
+            else: # Fallback for any other case or initial load
+                show_login_page()
 
 
 if __name__ == "__main__":
