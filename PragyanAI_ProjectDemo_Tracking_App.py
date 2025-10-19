@@ -1,4 +1,4 @@
-import streamlit as st
+mport streamlit as st
 import gspread
 import pandas as pd
 from google.oauth2.service_account import Credentials
@@ -780,7 +780,7 @@ def main():
 
             # Navigation
             if st.session_state.get('role') == 'Admin':
-                page = st.sidebar.radio("Navigation", ["Admin Dashboard", "Leader Dashboard", "Peer Learning"])
+                page = st.sidebar.radio("Navigation", ["Admin Dashboard", "Leader Dashboard", "Student Dashboard", "Peer Learning", "Evaluate Peer Project"])
             elif st.session_state.get('role') == 'Lead':
                 page = st.sidebar.radio("Navigation", ["Leader Dashboard", "Student Dashboard", "Peer Learning", "Evaluate Peer Project"])
             else: # Student
@@ -815,3 +815,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
