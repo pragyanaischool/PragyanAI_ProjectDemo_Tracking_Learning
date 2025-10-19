@@ -1,0 +1,19 @@
+#Web Application Framework & Generic
+streamlit
+pandas
+numpy
+plotly
+seaborn
+matplotlib
+#Google Sheets Integration (Database):
+gspread
+google-auth-oauthlib
+#LLM & RAG
+groq
+langchain
+langchain_community
+langchain-groq
+faiss-cpu
+sentence-transformers
+unstructured
+
