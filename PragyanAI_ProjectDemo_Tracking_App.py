@@ -7,17 +7,7 @@ import json
 import uuid
 import datetime
 import base64
-from groq import Groq
-from langchain_groq import ChatGroq
-from langchain_community.document_loaders import WebBaseLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import HuggingFaceEmbeddings
-#from langchain.chains import create_retrieval_chain
-from langchain.chains.retrieval import create_retrieval_chain
 
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_core.prompts import ChatPromptTemplate
 # --- LLM & RAG Imports ---
 # NOTE: You need to install the following packages:
 # pip install groq langchain langchain-groq langchain_community faiss-cpu sentence-transformers unstructured langchain-text-splitters
@@ -28,9 +18,9 @@ try:
     from langchain_text_splitters import RecursiveCharacterTextSplitter
     from langchain_community.vectorstores import FAISS
     from langchain_community.embeddings import HuggingFaceEmbeddings
-    from langchain.chains import create_retrieval_chain
-    from langchain.chains.combine_documents import create_stuff_documents_chain
     from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.runnables import RunnablePassthrough
+    from langchain_core.output_parsers import StrOutputParser
 except ImportError:
     st.error("LLM dependencies are not installed. Please run: pip install -r requirements.txt")
 
@@ -155,7 +145,7 @@ def get_sheet_by_id(client, sheet_id):
         return None
 
 def hash_password(password):
-    return hashlib.sha256(str.encode(password)).hexdigest()
+    return hashlib.sha26(str.encode(password)).hexdigest()
 
 def check_password(hashed_password, user_password):
     return hashed_password == hashlib.sha256(str.encode(user_password)).hexdigest()
@@ -561,19 +551,25 @@ def show_peer_learning_page():
                     vectorstore = FAISS.from_documents(documents=splits, embedding=embeddings)
                     llm = ChatGroq(temperature=0, groq_api_key=api_key, model_name="llama3-70b-8192")
                     
-                    prompt = ChatPromptTemplate.from_template("""Answer the following question based only on the provided context:
-                    <context>
-                    {context}
-                    </context>
-                    Question: {input}""")
-
-                    document_chain = create_stuff_documents_chain(llm, prompt)
                     retriever = vectorstore.as_retriever()
-                    retrieval_chain = create_retrieval_chain(retriever, document_chain)
                     
-                    response = retrieval_chain.invoke({"input": question})
+                    template = """Answer the question based only on the following context:
+                    {context}
+                    
+                    Question: {question}
+                    """
+                    prompt = ChatPromptTemplate.from_template(template)
+
+                    rag_chain = (
+                        {"context": retriever, "question": RunnablePassthrough()}
+                        | prompt
+                        | llm
+                        | StrOutputParser()
+                    )
+                    
+                    response = rag_chain.invoke(question)
                     st.success("Answer:")
-                    st.write(response["answer"])
+                    st.write(response)
                 except Exception as e:
                     st.error(f"Failed to process the document. Error: {e}")
     st.markdown('</div>', unsafe_allow_html=True)
