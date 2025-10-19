@@ -12,7 +12,7 @@ google-auth-oauthlib
 groq
 langchain
 langchain_community
-langchain-groq
+langchain-groq 
 langchain-text-splitters
 faiss-cpu
 sentence-transformers
