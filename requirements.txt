@@ -10,11 +10,12 @@ gspread
 google-auth-oauthlib
 #LLM & RAG
 groq
-langchain-core==0.3.72
-langchain==0.3.27
-langchain_community==0.3.3
+langchain-core==0.3.40
+langchain-community==0.3.40
+langchain==0.3.40
+langchain-text-splitters==0.1.4
 langchain-groq 
-langchain-text-splitters
+#langchain-text-splitters
 faiss-cpu
 sentence-transformers
 unstructured
