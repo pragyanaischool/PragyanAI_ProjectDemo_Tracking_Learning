@@ -7,6 +7,7 @@ import json
 import uuid
 import datetime
 import base64
+import os
 
 # --- LLM & RAG Imports ---
 # NOTE: You need to install the following packages:
@@ -117,14 +118,31 @@ EVENT_TEMPLATE_SPREADSHEET_KEY = "1ha-zXkVS-YtTgJmYYqVUXPeZ0TXO-6sblkRkepMXW5U"
 
 @st.cache_resource
 def connect_to_google_sheets():
-    """Establishes a connection to the Google Sheets API."""
+    """
+    Establishes a connection to the Google Sheets API.
+    It first tries to use Streamlit's secrets management (for deployment)
+    and falls back to a local JSON file (for local development).
+    """
     try:
+        # Try connecting using Streamlit secrets (for deployment)
         creds_json = dict(st.secrets["gcp_service_account"])
         creds = Credentials.from_service_account_info(creds_json, scopes=SCOPES)
+        st.info("Connecting to Google Sheets using Streamlit Secrets.")
+    except Exception:
+        # Fallback to a local file if secrets are not found (for local development)
+        local_creds_path = "gcp_creds.json"
+        if os.path.exists(local_creds_path):
+            creds = Credentials.from_service_account_file(local_creds_path, scopes=SCOPES)
+            st.info("Connecting to Google Sheets using local 'gcp_creds.json' file.")
+        else:
+            st.error("Google Sheets credentials not found. Please configure your Streamlit secrets or add a 'gcp_creds.json' file.")
+            return None
+    
+    try:
         client = gspread.authorize(creds)
         return client
     except Exception as e:
-        st.error(f"Failed to connect to Google Sheets. Ensure your secrets are configured correctly. Error: {e}")
+        st.error(f"Failed to authorize with Google Sheets. Error: {e}")
         return None
 
 # --- HELPER FUNCTIONS ---
@@ -699,7 +717,7 @@ def main():
         show_login_page()
     else:
         with st.sidebar:
-            logo_base64 = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAARKSURBVHhe7ZxLyBxFFMd/991Md6S7S1AUVFAU9I+gvygIIj6ABfGhCCKCj4LgQxAUxIcYCIqgCAp6CAqiDxAUxMcgCPLjbbJ7d2fu7s62z/Vv9kSS7s7Mzs7s7s7+fZM8ycx8+/nNN9/MvC0A/I8bAP+jBsA/qgHwT2oA/FMNAH+qAfBPagD8Uw0Af6oB8E_qAPxTDQB/qgHwT2oA/FMNAH+qAfBPagD8Uw0A/54GMDMzc/rQ0JA9Pz/XHzx4oIeHh1pqaqrevXvXvXPnTvfs2bPu6OionpycqPT19dUDg4P6/v5+HTs6OkqXLl3qkydP6qWlpdqJEyc0c+bMKScmJuo1NTXqgUFBfZ8+fdq9e/eu3bdv33rBwcF6QkJCHjY1tXv16lVbWlqq3759qw8ODuo7duxQ7+zs1JcvX9ZLS0u1T58+1ejoqL5165Z+7949/fTp05qZmZnuoUOHNG/cuKE7d+5c5/3793V+fn565MiRRllZWb0oLy/XI0eO6JGRkTp//vwxZWdn/yUAvp0GMDMzc4Kenh7d0NBQt2rVqnrb2tr0wcFB/dGjRzV3d3d9w4YN+sKFC1rX1ta6Xbt2rY6NjdW7d+/WnZ2d9eXLl/XWrVt1dna2Pnv2rN6/f193dnbaM2fOaLZt26bZtWtXL4qLi/XIyEh99+5d/eHDh/rFixd1c3OzPnv2rB4dHdUTExP1pqam+qFDh3Tfvn3r/Pr1a/3Tp0/1//z5Q3Nycuri4uL00NBQfXx8XPenpKQ87OxsvXPnztUXL17Ut2/f1mtqalQ7Ozt1dHRU/9u3b/rJkyf12bNn9R8/ftTl5eXqmTNndPv27dO8ePFinZ6e/gMAfEcNYGRkpN6/f18fHh7Wl5aW6ksXL2pVVVX6xYsX9aenp/rSpUv69u1bvejoqD558qRevnxZ7+zs1MvLy/XVq1f15s2b+vbNm7qzs1P/4sUL/eLFC33hwoX6jh079IEDB/To6Kh+9epVfXJyUmfOnDldV1dXR0dH6/nz53Vzc7Pevn1bj46O6t7e3vq2trb6vXv39Hfv3tWDBw9qZmZmuu/evSvMzMzUm5ub9ebNm/Xhw4d63759evPmTX3//n3t6enplzNnzqirq6ujI0eO6PXr13VrayvdsGEDfXh4WF9cXKw3b96sx8fH/g4A/KcNQF5eXl5aWqqtra11cXFx6tixY/revXv63r172tvb2x89elRv3bpVr6+vV+3t7fXmzZu6o6NDR0dHa15eXh0fH69Hjx7VBwcHtbe3t37q1Ck9fvx4/fHjR/348WO9e/eunp6e1t26deunTp3Sffv2rXNra2v9lClTdPfu3XWhUql60dHR+vr1a/3582etqalR7+npej8/P/38+XN9eHiovrOzU/Py8mpvb2999+5dfePGDb1r1y6dPHnyx8vL69ixY/rSpUsaRUVFXqioqNDDwsJ6eHh49lQNAH8PAWBgYKDe2dmpe3p66snJST1+/Lju27dP/8WLF3rDhg06ffr06S5dupQzZ87ovn371vnu3bv69evX2tWrV+vVq1f11KlT+sePH3VjY2MdHh6uf//+XT9+8FCvqalRx8fH66NHj+qjR4/qXl5eet68efqqVav0oUOHdLdu3brY1KlTdUJCgq6oqEivra3Vu3fv1g8PD/XW1tZ63759Ojk5uQ4LC/NpM/8f8Xj4E2oA/FMNAH+qAfBPagD8Uw0Af6oB8E9qAPxTDQB/qgHwT2oA/FMNAH+qAfBPagD8Uw0Af6oB8E9qAPxTDQB/qgHw/7gB8E9qAPxTDQB/qgHwT2oA/FMNAH+qAfBPagD8Uw0Af6oB8E9qAPxTDQB/qgHwT2oA/FMNAH+qAfBPagD8Uw0A/1MD4J/UAOjnAABKAPxTDQB/qgHwT2oA/FMNAH+qAfBPagD8Uw0Af6oB8E9qAPxTDQB/qgHwT2oA/FMNAH+qAfBPagD8Uw0Af6oB8E9qAPxTDQB/qgHwT2oA/FMNAH+qAfBPagD8Uw0Af6oB8E9qAPxTDQB/qgHwT2oA/FN/AYzQ8T0eLo//AAAAAElFTkSuQmCC"
+            logo_base64 = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAARKSURBVHhe7ZxLyBxFFMd/991Md6S7S1AUVFAU9I+gvygIIj6ABfGhCCKCj4LgQxAUxIcYCIqgCAp6CAqiDxAUxMcgCPLjbbJ7d2fu7s62z/Vv9kSS7s7Mzs7s7s7+fZM8ycx8+/nNN9/MvC0A/I8bAP+jBsA/qgHwT2oA/FMNAH+qAfBPagD8Uw0Af6oB8E_qAPxTDQB/qgHwT2oA/FMNAH+qAfBPagD8Uw0A/54GMDMzc/rQ0JA9Pz/XHzx4oIeHh1pqaqrevXvXvXPnTvfs2bPu6OionpycqPT19dUDg4P6/v5+HTs6OkqXLl3qkydP6qWlpdqJEyc0c+bMKScmJuo1NTXqgUFBfZ8+fdq9e/eu3bdv33rBwcF6QkJCHjY1tXv16lVbWlqq3759qw8ODuo7duxQ7+zs1JcvX9ZLS0u1T58+1ejoqL5165Z+7949/fTp05qZmZnuoUOHNG/cuKE7d+5c5/3793V+fn565MiRRllZWb0oLy/XI0eO6JGRkTp//vwxZWdn/yUAvp0GMDMzc4Kenh7d0NBQt2rVqnrb2tr0wcFB/dGjRzV3d3d9w4YN+sKFC1rX1ta6Xbt2rY6NjdW7d+/WnZ2d9eXLl/XWrVt1dna2Pnv2rN6/f193dnbaM2fOaLZt26bZtWtXL4qLi/XIyEh99+5d/eHDh/rFixd1c3OzPnv2rB4dHdUTExP1pqam+qFDh3Tfvn3r/Pr1a/3Tp0/1//z5Q3Nycuri4uL00NBQfXx8XPenpKQ87OxsvXPnztUXL17Ut2/f1mtqalQ7Ozt1dHRU/9u3b/rJkyf12bNn9R8/ftTl5eXqmTNndPv27dO8ePFinZ6e/gMAfEcNYGRkpN6/f18fHh7Wl5aW6ksXL2pVVVX6xYsX9aenp/rSpUv69u1bvejoqD558qRevnxZ7+zs1MvLy/XVq1f15s2b+vbNm7qzs1P/4sUL/eLFC33hwoX6jh079IEDB/To6Kh+9epVfXJyUmfOnDldV1dXR0dH6/nz53Vzc7Pevn1bj46O6t7e3vq2trb6vXv39Hfv3tWDBw9qZmZmuu/evSvMzMzUm5ub9ebNm/Xhw4d63759evPmTX3//n3t6enplzNnzqirq6ujI0eO6PXr13VrayvdsGEDfXh4WF9cXKw3b96sx8fH/g4A/KcNQF5eXl5aWqqtra11cXFx6tixY/revXv63r172tvb2x89elRv3bpVr6+vV+3t7fXmzZu6o6NDR0dHa15eXh0fH69Hjx7VBwcHtbe3t37q1Ck9fvx4/fHjR/348WO9e/eunp6e1t26deunTp3Sffv2rXNra2v9lClTdPfu3XWhUql60dHR+vr1a/3582etqalR7+npej8/P/38+XN9eHiovrOzU/Py8mpvb2999+5dfePGDb1r1y6dPHnyx8vL69ixY/rSpUsaRUVFXqioqNDDwsJ6eHh49lQNAH8PAWBgYKDe2dmpe3p66snJST1+/Lju27dP/8WLF3rDhg06ffr06S5dupQzZ8_ovn371vnu3bv69evX2tWrV+vVq1f11KlT+sePH3VjY2MdHh6uf//+XT9+8FCvqalRx8fH66NHj+qjR4/qXl5eet68efqqVav0oUOHdLdu3brY1KlTdUJCgq6oqEivra3Vu3fv1g8PD/XW1tZ63759Ojk5uQ4LC/NpM/8f8Xj4E2oA/FMNAH+qAfBPagD8Uw0Af6oB8E9qAPxTDQB/qgHwT2oA/FMNAH+qAfBPagD8Uw0Af6oB8E9qAPxTDQB/qgHw/7gB8E9qAPxTDQB/qgHwT2oA/FMNAH+qAfBPagD8Uw0Af6oB8E9qAPxTDQB/qgHwT2oA/FMNAH+qAfBPagD8Uw0A/1MD4J/UAOjnAABKAPxTDQB/qgHwT2oA/FMNAH+qAfBPagD8Uw0Af6oB8E9qAPxTDQB/qgHwT2oA/FMNAH+qAfBPagD8Uw0Af6oB8E9qAPxTDQB/qgHwT2oA/FMNAH+qAfBPagD8Uw0Af6oB8E9qAPxTDQB/qgHwT2oA/FN/AYzQ8T0eLo//AAAAAElFTkSuQmCC"
 
             st.markdown(f"""
                 <div style="display: flex; justify-content: center; margin-bottom: 20px;">
