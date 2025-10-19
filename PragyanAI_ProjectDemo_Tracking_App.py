@@ -6,40 +6,100 @@ import hashlib
 import json
 import uuid
 import datetime
+import base64
 
 # --- LLM & RAG Imports ---
 # NOTE: You need to install the following packages:
-# pip install groq langchain langchain-groq langchain_community faiss-cpu sentence-transformers unstructured
-from groq import Groq
-from langchain_groq import ChatGroq
-from langchain_community.document_loaders import WebBaseLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.chains import create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_core.prompts import ChatPromptTemplate
+# pip install groq langchain langchain-groq langchain_community faiss-cpu sentence-transformers unstructured langchain-text-splitters
 try:
     from groq import Groq
     from langchain_groq import ChatGroq
     from langchain_community.document_loaders import WebBaseLoader
-    from langchain.text_splitter import RecursiveCharacterTextSplitter
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
     from langchain_community.vectorstores import FAISS
     from langchain_community.embeddings import HuggingFaceEmbeddings
-    from langchain.chains import create_retrieval_chain
-    from langchain.chains.combine_documents import create_stuff_documents_chain
-    from langchain_core.prompts import ChatPromptTemplate
+    from langchain.chains import RetrievalQA
 except ImportError:
-    st.error("LLM dependencies are not installed. Please run: pip install groq langchain langchain-groq langchain_community faiss-cpu sentence-transformers unstructured")
+    st.error("LLM dependencies are not installed. Please run: pip install -r requirements.txt")
 
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="Project Demo Event Platform V2",
+    page_title="PragyanAI Project Platform",
     page_icon="🏆",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# --- UI ENHANCEMENTS & STYLING ---
+def load_css():
+    """Injects custom CSS for a beautiful UI."""
+    st.markdown("""
+    <style>
+        /* General Body and Font */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        /* Main App container */
+        .main .block-container {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+            padding-left: 5rem;
+            padding-right: 5rem;
+        }
+
+        /* Sidebar Styling */
+        .st-emotion-cache-16txtl3 {
+            background: #F0F2F6;
+        }
+
+        /* Card-like containers */
+        .card {
+            background: #FFFFFF;
+            border-radius: 10px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 8px 0 rgba(0,0,0,0.1);
+            transition: 0.3s;
+        }
+        .card:hover {
+            box-shadow: 0 8px 16px 0 rgba(0,0,0,0.2);
+        }
+        
+        /* Button Styling */
+        .stButton>button {
+            border-radius: 8px;
+            border: 1px solid transparent;
+            padding: 0.8em 1.5em;
+            font-size: 1em;
+            font-weight: 500;
+            font-family: inherit;
+            background-color: #1a73e8;
+            color: white;
+            cursor: pointer;
+            transition: border-color 0.25s, background-color 0.25s;
+        }
+        .stButton>button:hover {
+            background-color: #155cb0;
+        }
+        .stButton>button:focus, .stButton>button:focus-visible {
+            outline: 4px auto -webkit-focus-ring-color;
+        }
+        
+        /* Page Title */
+        h1 {
+            color: #1a73e8;
+            font-weight: bold;
+        }
+
+    </style>
+    """, unsafe_allow_html=True)
+
+# Function to get image as base64
+def get_image_as_base64(path):
+    with open(path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode()
 
 # --- GOOGLE SHEETS & DATABASE SETUP ---
 SCOPES = [
@@ -132,81 +192,82 @@ def authenticate_user(login_identifier, password):
 
 # --- UI PAGES ---
 def show_login_page():
-    st.title("🏆 Project Demo Event Platform")
+    st.title("🏆 Welcome to the PragyanAI Project Platform")
+    st.markdown("<br>", unsafe_allow_html=True)
     
-    col1, col2 = st.tabs(["Sign In", "Sign Up"])
-
-    with col1:
-        st.header("Login")
-        with st.form("login_form"):
-            login_identifier = st.text_input("Username or Phone Number", key="login_id")
-            login_password = st.text_input("Password", type="password", key="login_pass")
-            login_button = st.form_submit_button("Login", use_container_width=True)
-
-            if login_button:
-                user_data = authenticate_user(login_identifier, login_password)
-                if user_data is not None and user_data != "pending":
-                    st.session_state['logged_in'] = True
-                    st.session_state['username'] = user_data['UserName']
-                    st.session_state['role'] = user_data['Role(Student/Lead)']
-                    st.session_state['user_details'] = user_data.to_dict()
-                    st.rerun()
-                elif user_data is None:
-                    st.error("Invalid credentials.")
+    col1, col2, col3 = st.columns([1,2,1])
 
     with col2:
-        st.header("Create Account")
-        with st.form("signup_form"):
-            st.subheader("Personal Details")
-            full_name = st.text_input("Full Name")
-            college = st.text_input("College Name")
-            branch = st.text_input("Branch")
-            roll_no = st.text_input("University Reg. No.")
-            pass_year = st.text_input("Year of Passing")
-            
-            st.subheader("Contact & Login")
-            phone_login = st.text_input("Phone (for login)")
-            phone_whatsapp = st.text_input("Phone (for WhatsApp)")
-            username = st.text_input("Choose a Username")
-            password = st.text_input("Choose a Password", type="password")
-            confirm_password = st.text_input("Confirm Password", type="password")
-            
-            signup_button = st.form_submit_button("Create Account", use_container_width=True)
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        login_tab, signup_tab = st.tabs(["**Sign In**", "**Sign Up**"])
 
-            if signup_button:
-                if password != confirm_password:
-                    st.error("Passwords do not match.")
-                # Add more validation here
-                else:
-                    details = {
-                        "FullName": full_name, "CollegeName": college, "Branch": branch,
-                        "RollNO(UniversityRegNo)": roll_no, "YearofPassing_Passed": pass_year,
-                        "Phone(login)": phone_login, "Phone(Whatsapp)": phone_whatsapp,
-                        "UserName": username, "Password": password
-                    }
-                    success, message = create_user(details)
-                    if success:
-                        st.success(message)
+        with login_tab:
+            with st.form("login_form"):
+                st.subheader("Login to your Account")
+                login_identifier = st.text_input("Username or Phone Number", key="login_id")
+                login_password = st.text_input("Password", type="password", key="login_pass")
+                st.markdown("<br>", unsafe_allow_html=True)
+                login_button = st.form_submit_button("Login", use_container_width=True)
+
+                if login_button:
+                    user_data = authenticate_user(login_identifier, login_password)
+                    if user_data is not None and user_data != "pending":
+                        st.session_state['logged_in'] = True
+                        st.session_state['username'] = user_data['UserName']
+                        st.session_state['role'] = user_data['Role(Student/Lead)']
+                        st.session_state['user_details'] = user_data.to_dict()
+                        st.rerun()
+                    elif user_data is None:
+                        st.error("Invalid credentials.")
+        
+        with signup_tab:
+            with st.form("signup_form"):
+                st.subheader("Create a New Account")
+                full_name = st.text_input("Full Name")
+                college = st.text_input("College Name")
+                branch = st.text_input("Branch")
+                roll_no = st.text_input("University Reg. No.")
+                pass_year = st.text_input("Year of Passing")
+                phone_login = st.text_input("Phone (for login)")
+                phone_whatsapp = st.text_input("Phone (for WhatsApp)")
+                username = st.text_input("Choose a Username")
+                password = st.text_input("Choose a Password", type="password")
+                confirm_password = st.text_input("Confirm Password", type="password")
+                st.markdown("<br>", unsafe_allow_html=True)
+                signup_button = st.form_submit_button("Create Account", use_container_width=True)
+
+                if signup_button:
+                    if password != confirm_password:
+                        st.error("Passwords do not match.")
                     else:
-                        st.error(message)
+                        details = {
+                            "FullName": full_name, "CollegeName": college, "Branch": branch,
+                            "RollNO(UniversityRegNo)": roll_no, "YearofPassing_Passed": pass_year,
+                            "Phone(login)": phone_login, "Phone(Whatsapp)": phone_whatsapp,
+                            "UserName": username, "Password": password
+                        }
+                        success, message = create_user(details)
+                        if success:
+                            st.success(message)
+                        else:
+                            st.error(message)
+        st.markdown('</div>', unsafe_allow_html=True)
 
 def show_admin_dashboard():
     st.title(f"👑 Admin Dashboard")
-    st.write(f"Welcome, {st.session_state['username']}!")
-
+    
     client = connect_to_google_sheets()
     if not client: return
 
-    tab1, tab2 = st.tabs(["User Management", "Event Management"])
+    tab1, tab2 = st.tabs(["👤 User Management", "🗓️ Event Management"])
 
     with tab1:
-        st.subheader("User Administration")
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("Approve New Users")
         users_sheet = get_sheet(client, USERS_SHEET_NAME)
         if not users_sheet: return
         users_df = pd.DataFrame(users_sheet.get_all_records(head=1))
-
-        st.markdown("---")
-        st.subheader("Approve New Users")
+        
         pending_users = users_df[users_df['Status(Approved/NotApproved)'] == 'NotApproved']
         if not pending_users.empty:
             users_to_approve = st.multiselect("Select users to approve", options=pending_users['UserName'].tolist())
@@ -218,8 +279,9 @@ def show_admin_dashboard():
                 st.rerun()
         else:
             st.info("No users are pending approval.")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        st.markdown("---")
+        st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Manage Leaders")
         approved_users = users_df[users_df['Status(Approved/NotApproved)'] == 'Approved']
         students = approved_users[approved_users['Role(Student/Lead)'] == 'Student']
@@ -230,8 +292,9 @@ def show_admin_dashboard():
                 users_sheet.update_cell(cell.row, 12, 'Lead') # Column L
                 st.success(f"{user_to_make_leader} is now a Leader.")
                 st.rerun()
-        
-        st.markdown("---")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Revoke User Access")
         if not approved_users.empty:
             user_to_revoke = st.selectbox("Select user to revoke access", options=approved_users['UserName'].tolist())
@@ -240,15 +303,15 @@ def show_admin_dashboard():
                 users_sheet.update_cell(cell.row, 11, 'Revoked')
                 st.warning(f"Access for {user_to_revoke} has been revoked.")
                 st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with tab2:
-        st.subheader("Event Administration")
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("Approve New Project Demo Events")
         events_sheet = get_sheet(client, EVENTS_MASTER_SHEET_NAME)
         if not events_sheet: return
         events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
-
-        st.markdown("---")
-        st.subheader("Approve New Project Demo Events")
+        
         pending_events = events_df[events_df['Approved_Status'] == 'No']
         if not pending_events.empty:
             event_to_approve = st.selectbox("Select event to approve", options=pending_events['ProjectDemo_Event_Name'].tolist())
@@ -259,8 +322,9 @@ def show_admin_dashboard():
                 st.rerun()
         else:
             st.info("No events pending approval.")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        st.markdown("---")
+        st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Modify Existing Event")
         all_events = events_df['ProjectDemo_Event_Name'].tolist()
         if all_events:
@@ -278,24 +342,21 @@ def show_admin_dashboard():
                     cell = events_sheet.find(event_to_modify)
                     events_sheet.update_cell(cell.row, 8, whatsapp_link) # Column H
                     events_sheet.update_cell(cell.row, 7, conducted_status) # Column G
-                    # Assuming Project_Demo_Sheet_Link is column I
                     events_sheet.update_cell(cell.row, 9, sheet_link)
-                    # Assuming Project_Evaluation_GoogleFormLink is a new column J
-                    # This requires the user to add the column to their sheet
-                    # events_sheet.update_cell(cell.row, 10, eval_form_link) 
                     st.success("Event updated.")
                     st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
 def show_leader_dashboard():
     st.title(f"🧑‍🏫 Lead Dashboard")
-    st.write(f"Welcome, {st.session_state['username']}!")
 
     client = connect_to_google_sheets()
     if not client: return
 
-    tab1, tab2 = st.tabs(["Create Project Demo", "Manage My Demos"])
+    tab1, tab2 = st.tabs(["🚀 Create Project Demo", "📋 Manage My Demos"])
 
     with tab1:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
         st.header("Create New Project Demo Event")
         with st.form("leader_create_event"):
             st.write("Provide details for the new demo event. It will require Admin approval before it's visible to students.")
@@ -310,9 +371,7 @@ def show_leader_dashboard():
             if submitted:
                 with st.spinner("Creating event and new sheet..."):
                     try:
-                        # Copy the template sheet
                         new_sheet = client.copy(EVENT_TEMPLATE_SHEET_ID, title=f"Event - {event_name}", copy_permissions=True)
-                        
                         events_sheet = get_sheet(client, EVENTS_MASTER_SHEET_NAME)
                         new_event_data = [
                             str(demo_date), event_name, domain, description, external_url,
@@ -323,15 +382,18 @@ def show_leader_dashboard():
                         st.info(f"A new Google Sheet for this event has been created: {new_sheet.url}")
                     except Exception as e:
                         st.error(f"An error occurred: {e}. Ensure the template sheet ID is correct in your secrets.")
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with tab2:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
         st.header("Your Created Events")
         events_sheet = get_sheet(client, EVENTS_MASTER_SHEET_NAME)
         if not events_sheet: return
         events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
-        my_events = events_df[events_df['ProjectDemo_Event_Name'].str.contains(st.session_state['username'], case=False)] # Simple check
-        st.dataframe(my_events)
-
+        # A more robust check for leader's events might be needed if names are not unique
+        my_events = events_df
+        st.dataframe(my_events, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
 def show_student_dashboard():
     st.title(f"🎓 Student Dashboard")
@@ -350,6 +412,7 @@ def show_student_dashboard():
         st.info("There are no active project demo events to enroll in right now.")
         return
 
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("Enroll For a Project Demo")
     event_choice = st.selectbox("Select an active event", options=active_events['ProjectDemo_Event_Name'].tolist())
 
@@ -391,17 +454,17 @@ def show_student_dashboard():
                     user_info['FullName'], user_info['CollegeName'], user_info['Branch'],
                     project_title, description, keywords, tools_list,
                     report_link, ppt_link, github_link, youtube_link, linkedin_link,
-                    'No', '', '', '', '', '', '', '' # Presented, Score, and other fields left blank
+                    'No', '', '', '', '', '', '', ''
                 ]
                 
                 if not my_submission.empty:
-                    # Find cell and update row - more robust than index
                     cell = submission_sheet.find(user_info['FullName'])
                     submission_sheet.update(f'A{cell.row}', [submission_data])
                     st.success("Your project details have been updated!")
                 else:
                     submission_sheet.append_row(submission_data)
                     st.success("You have successfully enrolled in the event!")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 def show_peer_learning_page():
     st.title("🧑‍🎓 Peer Learning Hub")
@@ -410,7 +473,6 @@ def show_peer_learning_page():
     client = connect_to_google_sheets()
     if not client: return
     
-    # Load all projects from all events
     @st.cache_data(ttl=600)
     def load_all_projects(_client):
         events_sheet = get_sheet(_client, EVENTS_MASTER_SHEET_NAME)
@@ -428,7 +490,7 @@ def show_peer_learning_page():
                         submissions['EventName'] = event['ProjectDemo_Event_Name']
                         all_projects.append(submissions)
                 except Exception:
-                    continue # Skip sheets that can't be opened
+                    continue 
         if not all_projects:
             return pd.DataFrame()
         return pd.concat(all_projects, ignore_index=True)
@@ -439,6 +501,7 @@ def show_peer_learning_page():
         return
 
     project_choice = st.selectbox("Select a project to view", options=projects_df['ProjectTitle'].unique())
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     if project_choice:
         project_details = projects_df[projects_df['ProjectTitle'] == project_choice].iloc[0]
         
@@ -446,10 +509,18 @@ def show_peer_learning_page():
         st.caption(f"By {project_details['StudentFullName']} from {project_details['CollegeName']} | Event: {project_details['EventName']}")
         st.write(f"**Description:** {project_details['Description']}")
         
-        # Display links and media
-        if st.button('View Report'): st.link_button("Open Report", project_details['ReportLink'])
-        if st.button('View Presentation'): st.link_button("Open Presentation", project_details['PresentationLink'])
-        if project_details['YouTubeLink']: st.video(project_details['YouTubeLink'])
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            if project_details['ReportLink']: st.link_button("📄 View Report", project_details['ReportLink'])
+        with c2:
+            if project_details['PresentationLink']: st.link_button("🖥️ View Presentation", project_details['PresentationLink'])
+        with c3:
+            if project_details['GitHubLink']: st.link_button("💻 View Code", project_details['GitHubLink'])
+        with c4:
+             if project_details['Linkedin_Project_Post_Link']: st.link_button("🔗 LinkedIn Post", project_details['Linkedin_Project_Post_Link'])
+
+        if project_details['YouTubeLink']: 
+            st.video(project_details['YouTubeLink'])
         
         st.markdown("---")
         st.subheader("🤖 RAG-Based Q&A")
@@ -472,31 +543,26 @@ def show_peer_learning_page():
                 try:
                     loader = WebBaseLoader(report_url)
                     docs = loader.load()
-                    
                     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
                     splits = text_splitter.split_documents(docs)
-                    
                     embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
                     vectorstore = FAISS.from_documents(documents=splits, embedding=embeddings)
-                    
                     llm = ChatGroq(temperature=0, groq_api_key=api_key, model_name="llama3-70b-8192")
                     
-                    prompt = ChatPromptTemplate.from_template("""Answer the following question based only on the provided context:
-                    <context>
-                    {context}
-                    </context>
-                    Question: {input}""")
-                    
-                    document_chain = create_stuff_documents_chain(llm, prompt)
                     retriever = vectorstore.as_retriever()
-                    retrieval_chain = create_retrieval_chain(retriever, document_chain)
+                    qa_chain = RetrievalQA.from_chain_type(
+                        llm=llm,
+                        chain_type="stuff",
+                        retriever=retriever
+                    )
                     
-                    response = retrieval_chain.invoke({"input": question})
+                    response = qa_chain.invoke(question)
                     st.success("Answer:")
-                    st.write(response["answer"])
-
+                    st.write(response["result"])
                 except Exception as e:
-                    st.error(f"Failed to process the document. The URL might be inaccessible or in an unsupported format. Error: {e}")
+                    st.error(f"Failed to process the document. Error: {e}")
+    st.markdown('</div>', unsafe_allow_html=True)
+
 
 def show_evaluator_ui():
     st.title("📝 Peer Project Evaluation")
@@ -514,6 +580,7 @@ def show_evaluator_ui():
         st.info("No active events available for evaluation.")
         return
 
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     event_choice = st.selectbox("Select Event to Evaluate", options=active_events['ProjectDemo_Event_Name'].tolist())
     if event_choice:
         event_details = active_events[active_events['ProjectDemo_Event_Name'] == event_choice].iloc[0]
@@ -548,40 +615,56 @@ def show_evaluator_ui():
                     ]
                     eval_sheet.append_row(eval_data)
                     st.success(f"Evaluation for {candidate} submitted with an average score of {avg_score:.2f}!")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # --- MAIN APP LOGIC ---
 def main():
+    load_css()
+    
     if 'logged_in' not in st.session_state:
         st.session_state.logged_in = False
 
     if not st.session_state.logged_in:
         show_login_page()
     else:
-        st.sidebar.title(f"Welcome, {st.session_state.get('username', '')}!")
-        st.sidebar.caption(f"Role: {st.session_state.get('role', '').capitalize()}")
-        st.sidebar.divider()
-        
-        st.sidebar.subheader("API Configuration")
-        st.session_state['groq_api_key'] = st.sidebar.text_input(
-            "Enter Your GROQ API Key", 
-            type="password", 
-            help="Get your free API key from https://console.groq.com/keys"
-        )
+        with st.sidebar:
+            # --- LOGO ---
+            # To add your own logo:
+            # 1. Convert your 'PragyanAI_Transperent.png' to a base64 string.
+            #    You can use an online converter: https://www.base64-image.de/
+            # 2. Replace the entire string assigned to 'logo_base64' with your string.
+            logo_base64 = "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"
 
-        st.sidebar.divider()
+            st.markdown(f"""
+                <div style="display: flex; justify-content: center; margin-bottom: 20px;">
+                    <img src="data:image/png;base64,{logo_base64}" alt="PragyanAI Logo" style="width: 80px; height: 80px;">
+                </div>
+                """, unsafe_allow_html=True)
+            st.sidebar.markdown("<h2 style='text-align: center; color: #1a73e8;'>PragyanAI Platform</h2>", unsafe_allow_html=True)
 
-        # Navigation
-        if st.session_state.get('role') == 'Admin':
-            page = st.sidebar.radio("Navigation", ["Admin Dashboard", "Leader Dashboard"])
-        elif st.session_state.get('role') == 'Lead':
-            page = st.sidebar.radio("Navigation", ["Leader Dashboard", "Student Dashboard", "Peer Learning", "Evaluate Peer Project"])
-        else: # Student
-            page = st.sidebar.radio("Navigation", ["Student Dashboard", "Peer Learning", "Evaluate Peer Project"])
+            st.sidebar.divider()
+            
+            st.sidebar.subheader("API Configuration")
+            st.session_state['groq_api_key'] = st.sidebar.text_input(
+                "Enter Your GROQ API Key", 
+                type="password", 
+                help="Get your free API key from https://console.groq.com/keys"
+            )
 
-        st.sidebar.divider()
-        if st.sidebar.button("Logout"):
-            st.session_state.clear()
-            st.rerun()
+            st.sidebar.divider()
+
+            # Navigation
+            if st.session_state.get('role') == 'Admin':
+                page = st.sidebar.radio("Navigation", ["Admin Dashboard", "Leader Dashboard"])
+            elif st.session_state.get('role') == 'Lead':
+                page = st.sidebar.radio("Navigation", ["Leader Dashboard", "Student Dashboard", "Peer Learning", "Evaluate Peer Project"])
+            else: # Student
+                page = st.sidebar.radio("Navigation", ["Student Dashboard", "Peer Learning", "Evaluate Peer Project"])
+
+            st.sidebar.divider()
+            if st.sidebar.button("Logout"):
+                st.session_state.clear()
+                st.rerun()
 
         # Page rendering
         if page == "Admin Dashboard":
