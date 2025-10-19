@@ -27,7 +27,7 @@ except ImportError:
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="PragyanAI Project Platform",
+    page_title="PragyanAI ProjectDemo Tracking Platform",
     page_icon="🏆",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -126,7 +126,6 @@ USERS_SHEET_NAME = "Users"
 EVENTS_MASTER_SHEET_NAME = "Project_Demo_Events" 
 EVENT_TEMPLATE_SHEET_ID = st.secrets.get("gcp_service_account", {}).get("event_template_sheet_id", "YOUR_TEMPLATE_SHEET_ID_HERE")
 
-
 # --- HELPER FUNCTIONS ---
 def get_sheet(client, sheet_name):
     """Safely opens a sheet by name."""
@@ -194,15 +193,14 @@ def authenticate_user(login_identifier, password):
 
 # --- UI PAGES ---
 def show_login_page():
-    st.title("🏆 Welcome to the PragyanAI Project Platform")
+    st.image("")
+    st.title("🏆 PragyanAI Project Demo Tracking Platform")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1,2,1])
-
     with col2:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         login_tab, signup_tab = st.tabs(["**Sign In**", "**Sign Up**"])
-
         with login_tab:
             with st.form("login_form"):
                 st.subheader("Login to your Account")
@@ -210,7 +208,6 @@ def show_login_page():
                 login_password = st.text_input("Password", type="password", key="login_pass")
                 st.markdown("<br>", unsafe_allow_html=True)
                 login_button = st.form_submit_button("Login", use_container_width=True)
-
                 if login_button:
                     user_data = authenticate_user(login_identifier, login_password)
                     if user_data is not None and user_data != "pending":
@@ -220,8 +217,7 @@ def show_login_page():
                         st.session_state['user_details'] = user_data.to_dict()
                         st.rerun()
                     elif user_data is None:
-                        st.error("Invalid credentials.")
-        
+                        st.error("Invalid credentials.")    
         with signup_tab:
             with st.form("signup_form"):
                 st.subheader("Create a New Account")
@@ -256,7 +252,7 @@ def show_login_page():
         st.markdown('</div>', unsafe_allow_html=True)
 
 def show_admin_dashboard():
-    st.title(f"👑 Admin Dashboard")
+    st.title(f"👑 PragyanAI - Admin Dashboard")
     
     client = connect_to_google_sheets()
     if not client: return
@@ -350,7 +346,7 @@ def show_admin_dashboard():
         st.markdown('</div>', unsafe_allow_html=True)
 
 def show_leader_dashboard():
-    st.title(f"🧑‍🏫 Lead Dashboard")
+    st.title(f"🧑‍🏫 PragyanAI - Lead Dashboard")
 
     client = connect_to_google_sheets()
     if not client: return
@@ -398,7 +394,7 @@ def show_leader_dashboard():
         st.markdown('</div>', unsafe_allow_html=True)
 
 def show_student_dashboard():
-    st.title(f"🎓 Student Dashboard")
+    st.title(f"🎓 PragyanAI - Student Dashboard")
     st.write(f"Welcome, {st.session_state['user_details']['FullName']}!")
     
     client = connect_to_google_sheets()
@@ -469,7 +465,7 @@ def show_student_dashboard():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def show_peer_learning_page():
-    st.title("🧑‍🎓 Peer Learning Hub")
+    st.title("🧑‍🎓 PragyanAI - Peer Learning Hub")
     st.write("Explore projects from past and present events.")
     
     client = connect_to_google_sheets()
@@ -574,9 +570,8 @@ def show_peer_learning_page():
                     st.error(f"Failed to process the document. Error: {e}")
     st.markdown('</div>', unsafe_allow_html=True)
 
-
 def show_evaluator_ui():
-    st.title("📝 Peer Project Evaluation")
+    st.title("📝 PragyanAI - Peer Project Evaluation")
     
     client = connect_to_google_sheets()
     if not client: return
