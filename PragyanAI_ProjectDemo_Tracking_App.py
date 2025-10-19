@@ -13,7 +13,9 @@ from langchain_community.document_loaders import WebBaseLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.chains import RetrievalQA
+from langchain.chains import create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.prompts import ChatPromptTemplate
 # --- LLM & RAG Imports ---
 # NOTE: You need to install the following packages:
 # pip install groq langchain langchain-groq langchain_community faiss-cpu sentence-transformers unstructured langchain-text-splitters
@@ -24,7 +26,9 @@ try:
     from langchain_text_splitters import RecursiveCharacterTextSplitter
     from langchain_community.vectorstores import FAISS
     from langchain_community.embeddings import HuggingFaceEmbeddings
-    from langchain.chains import RetrievalQA
+    from langchain.chains import create_retrieval_chain
+    from langchain.chains.combine_documents import create_stuff_documents_chain
+    from langchain_core.prompts import ChatPromptTemplate
 except ImportError:
     st.error("LLM dependencies are not installed. Please run: pip install -r requirements.txt")
 
@@ -555,16 +559,19 @@ def show_peer_learning_page():
                     vectorstore = FAISS.from_documents(documents=splits, embedding=embeddings)
                     llm = ChatGroq(temperature=0, groq_api_key=api_key, model_name="llama3-70b-8192")
                     
+                    prompt = ChatPromptTemplate.from_template("""Answer the following question based only on the provided context:
+                    <context>
+                    {context}
+                    </context>
+                    Question: {input}""")
+
+                    document_chain = create_stuff_documents_chain(llm, prompt)
                     retriever = vectorstore.as_retriever()
-                    qa_chain = RetrievalQA.from_chain_type(
-                        llm=llm,
-                        chain_type="stuff",
-                        retriever=retriever
-                    )
+                    retrieval_chain = create_retrieval_chain(retriever, document_chain)
                     
-                    response = qa_chain.invoke(question)
+                    response = retrieval_chain.invoke({"input": question})
                     st.success("Answer:")
-                    st.write(response["result"])
+                    st.write(response["answer"])
                 except Exception as e:
                     st.error(f"Failed to process the document. Error: {e}")
     st.markdown('</div>', unsafe_allow_html=True)
