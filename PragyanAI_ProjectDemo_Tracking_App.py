@@ -734,8 +734,9 @@ def main():
 
         # Page rendering
         if 'page' not in st.session_state:
-            st.session_state.page = "Student Dashboard" if st.session_state.get('role') in ['Student', 'Lead'] else "Admin Dashboard"
-
+            st.session_state.page = "Student Dashboard" 
+        #if st.session_state.get('role') in ['Student', 'Lead'] 
+        #else "Admin Dashboard"
         if st.session_state.page == "Admin Dashboard":
             show_admin_dashboard()
         elif st.session_state.page == "Leader Dashboard":
