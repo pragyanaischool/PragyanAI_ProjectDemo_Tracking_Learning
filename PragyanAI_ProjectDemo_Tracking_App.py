@@ -193,7 +193,7 @@ def authenticate_user(login_identifier, password):
 
 # --- UI PAGES ---
 def show_login_page():
-    st.image("")
+    st.image("PragyanAI_Transperent.png")
     st.title("🏆 PragyanAI Project Demo Tracking Platform")
     st.markdown("<br>", unsafe_allow_html=True)
     
