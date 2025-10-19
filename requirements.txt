@@ -10,8 +10,9 @@ gspread
 google-auth-oauthlib
 #LLM & RAG
 groq
-langchain
-langchain_community
+langchain==0.3.27
+langchain_community==0.3.3
+langchain-core==0.3.12
 langchain-groq 
 langchain-text-splitters
 faiss-cpu
