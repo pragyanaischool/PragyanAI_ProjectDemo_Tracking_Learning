@@ -13,7 +13,7 @@ import datetime
 from groq import Groq
 from langchain_groq import ChatGroq
 from langchain_community.document_loaders import WebBaseLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.chains import create_retrieval_chain
