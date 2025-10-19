@@ -7,7 +7,13 @@ import json
 import uuid
 import datetime
 import base64
-
+from groq import Groq
+from langchain_groq import ChatGroq
+from langchain_community.document_loaders import WebBaseLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain.chains import RetrievalQA
 # --- LLM & RAG Imports ---
 # NOTE: You need to install the following packages:
 # pip install groq langchain langchain-groq langchain_community faiss-cpu sentence-transformers unstructured langchain-text-splitters
