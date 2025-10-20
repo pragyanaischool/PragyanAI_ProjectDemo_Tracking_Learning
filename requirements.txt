@@ -20,3 +20,4 @@ langchain-groq
 faiss-cpu
 sentence-transformers
 unstructured
+pypdf
