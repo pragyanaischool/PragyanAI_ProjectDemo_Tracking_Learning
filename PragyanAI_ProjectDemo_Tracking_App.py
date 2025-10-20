@@ -516,7 +516,18 @@ def show_student_dashboard():
     if not events_sheet: return
     events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
     
-    active_events = events_df[(events_df['Approved_Status'] == 'Yes') & (events_df['Conducted_State'] == 'No')]
+    # --- FIX STARTS HERE ---
+    approved_col = 'Approved_Status'
+    conducted_col = 'Conducted_State'
+    
+    if approved_col not in events_df.columns or conducted_col not in events_df.columns:
+        st.error(f"Critical Error: Your 'Project_Demos_List' sheet is missing required columns.")
+        st.info(f"Please ensure the headers '{approved_col}' and '{conducted_col}' exist exactly as written.")
+        st.write("Columns found in your sheet:", events_df.columns.tolist())
+        return # Stop the function to prevent crashing.
+    # --- FIX ENDS HERE ---
+
+    active_events = events_df[(events_df[approved_col] == 'Yes') & (events_df[conducted_col] == 'No')]
     
     if active_events.empty:
         st.info("There are no active project demo events to enroll in right now.")
@@ -820,3 +831,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
