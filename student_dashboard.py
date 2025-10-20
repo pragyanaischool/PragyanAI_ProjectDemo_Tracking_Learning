@@ -258,7 +258,7 @@ def render_ai_tools():
                     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
                     splits = text_splitter.split_documents(docs)
                     
-                    llm = ChatGroq(temperature=0.2, groq_api_key=api_key, model_name="llama3-70b-8192")
+                    llm = ChatGroq(temperature=0.2, groq_api_key=api_key, model_name="llama-3.3-70b-versatile")
                     notes_prompt = ChatPromptTemplate.from_template("""You are an expert teacher. Based on the context, generate comprehensive study notes. Explain all key topics, sub-topics, concepts with examples and code samples if applicable. Use detailed Markdown formatting. Context: {context}""")
                     
                     embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
