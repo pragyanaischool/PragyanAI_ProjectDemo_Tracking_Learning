@@ -599,7 +599,7 @@ def show_student_dashboard():
     
     events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
     if not events_sheet: return
-    events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
+    events_df = pd.DataFrame(events_sheet.get_all_records(head=0))
     logger.info(f"Debug (Student Dashboard): Columns read from 'Project_Demos_List' sheet: {events_df.columns.tolist()}")
     st.write(events_df.head(), len(events_df))
     st.write(events_df.columns)
