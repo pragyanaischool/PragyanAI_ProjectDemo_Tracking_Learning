@@ -476,9 +476,14 @@ def show_admin_dashboard():
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Approve New Project Demo Events")
         events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
-        if not events_sheet: return
-        events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
+        if not events_sheet: 
+            return
+        events_df = pd.DataFrame(events_sheet.get_all_records(head=0))
         logger.info(f"Debug (Admin Event Mgt): Columns read from 'Project_Demos_List' sheet: {events_df.columns.tolist()}")
+        
+        if len(events_df) <=1:
+            st.info("No Active Event - Please add and revisit")
+            return
         
         if 'Approved_Status' not in events_df.columns:
             st.error("Critical Error: 'Approved_Status' column not found in 'Project_Demos_List' sheet.")
