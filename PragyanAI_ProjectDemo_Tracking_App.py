@@ -601,7 +601,8 @@ def show_student_dashboard():
     if not events_sheet: return
     events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
     logger.info(f"Debug (Student Dashboard): Columns read from 'Project_Demos_List' sheet: {events_df.columns.tolist()}")
-    
+    st.write(events_df.head(), len(events_df))
+    st.write(events_df.columns)
     approved_col = 'Approved_Status'
     conducted_col = 'Conducted_State'
     
