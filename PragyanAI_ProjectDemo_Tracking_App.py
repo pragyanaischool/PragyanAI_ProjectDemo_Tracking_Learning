@@ -480,7 +480,9 @@ def show_admin_dashboard():
             return
         events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
         logger.info(f"Debug (Admin Event Mgt): Columns read from 'Project_Demos_List' sheet: {events_df.columns.tolist()}")
-        st.write(events_df.head())
+        
+        st.write(events_df.head(),events_df.columns)
+        
         if len(events_df) <=1:
             st.info("No Active Event - Please add and revisit")
             return
