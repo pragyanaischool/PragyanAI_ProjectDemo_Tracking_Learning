@@ -419,7 +419,7 @@ def show_admin_dashboard():
             return
         users_df = pd.DataFrame(users_sheet.get_all_records(head=1))
         logger.info(f"Debug (Admin User Mgt): Columns read from 'User' sheet: {users_df.columns.tolist()}")
-
+        st.write(users_df.head())
         if len(users_df) <= 1:
             st.info("Still No Project Event Exist - Please add and revisit")
             return
@@ -478,9 +478,9 @@ def show_admin_dashboard():
         events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
         if not events_sheet: 
             return
-        events_df = pd.DataFrame(events_sheet.get_all_records(head=0))
+        events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
         logger.info(f"Debug (Admin Event Mgt): Columns read from 'Project_Demos_List' sheet: {events_df.columns.tolist()}")
-        
+        st.write(events_df.head())
         if len(events_df) <=1:
             st.info("No Active Event - Please add and revisit")
             return
