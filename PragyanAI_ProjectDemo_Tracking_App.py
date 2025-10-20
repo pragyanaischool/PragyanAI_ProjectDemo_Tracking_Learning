@@ -362,7 +362,7 @@ def show_login_page():
                 password = st.text_input("Choose a Password", type="password")
                 confirm_password = st.text_input("Confirm Password", type="password")
                 st.markdown("<br>", unsafe_allow_html=True)
-                signup_button = st.form_submit_button("Create Account", width='stretch')
+                signup_button = st.form_submit_button("Create Account", use_container_width=True)
 
                 if signup_button:
                     if not all([full_name, college, branch, roll_no, pass_year, phone_login, username, password]):
@@ -388,7 +388,7 @@ def show_login_page():
                 admin_user = st.text_input("Admin Username", key="admin_user")
                 admin_pass = st.text_input("Admin Password", type="password", key="admin_pass")
                 st.markdown("<br>", unsafe_allow_html=True)
-                admin_login_button = st.form_submit_button("Admin Login", width='stretch')
+                admin_login_button = st.form_submit_button("Admin Login", use_container_width=True)
                 if admin_login_button:
                     admin_data = authenticate_admin(admin_user, admin_pass)
                     if admin_data is not None:
@@ -419,9 +419,9 @@ def show_admin_dashboard():
             return
         users_df = pd.DataFrame(users_sheet.get_all_records(head=1))
         logger.info(f"Debug (Admin User Mgt): Columns read from 'User' sheet: {users_df.columns.tolist()}")
-        st.write(users_df.head())
-        if len(users_df) <= 1:
-            st.info("Still No Project Event Exist - Please add and revisit")
+
+        if len(users_df) < 1:
+            st.info("No user data found.")
             return
         status_col = 'Status(Approved/NotApproved)'
         role_col = 'Role(Student/Lead)'
@@ -476,16 +476,9 @@ def show_admin_dashboard():
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Approve New Project Demo Events")
         events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
-        if not events_sheet: 
-            return
+        if not events_sheet: return
         events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
         logger.info(f"Debug (Admin Event Mgt): Columns read from 'Project_Demos_List' sheet: {events_df.columns.tolist()}")
-        
-        st.write(events_df.head(),events_df.columns)
-        
-        if len(events_df) <=1:
-            st.info("No Active Event - Please add and revisit")
-            return
         
         if 'Approved_Status' not in events_df.columns:
             st.error("Critical Error: 'Approved_Status' column not found in 'Project_Demos_List' sheet.")
@@ -560,33 +553,65 @@ def show_leader_dashboard():
         st.header("Create New Project Demo Event")
         with st.form("leader_create_event"):
             st.write("Provide details for the new demo event. It will require Admin approval before it's visible to students.")
-            event_name = st.text_input("Project Event Name")
-            demo_date = st.date_input("Demo Date")
-            domain = st.text_input("Domain (e.g., AI/ML, Web Development, IoT)")
-            description = st.text_area("Brief Description")
-            external_url = st.text_input("URL (Optional, for external resources)")
-            whatsapp = st.text_input("WhatsApp Group Link")
+            
+            st.subheader("Core Event Details")
+            event_name = st.text_input("Project Event Name*")
+            demo_date = st.date_input("Demo Date*")
+            domain = st.text_input("Domain (e.g., AI/ML, Web Development)*")
+            description = st.text_area("Brief Description*")
 
+            st.subheader("Sample Materials & Links (Optional)")
+            sample_report_template = st.text_input("Sample Report Template Link")
+            sample_ppt_template = st.text_input("Sample Presentation Template Link")
+            sample_code_link = st.text_input("Sample Project Code (GitHub)")
+            sample_linkedin_post = st.text_input("Sample LinkedIn Post Link")
+            sample_youtube_link = st.text_input("Sample Project Demo (YouTube)")
+            sample_titles = st.text_area("Sample Project Titles (one per line)")
+            sample_descriptions = st.text_area("Sample Project Descriptions (one per line)")
+            sample_tools = st.text_input("Sample Tools List (comma-separated)")
+            sample_keywords = st.text_input("Sample Keywords (comma-separated)")
+            
             submitted = st.form_submit_button("Submit for Approval")
             if submitted:
                 if not all([event_name, demo_date, domain, description]):
-                    st.error("Please fill all required fields.")
+                    st.error("Please fill all required fields marked with *.")
                 else:
                     with st.spinner("Creating event and new sheet..."):
                         try:
+                            # 1. Copy the template spreadsheet
                             new_sheet_copy = client.copy(EVENT_TEMPLATE_SPREADSHEET_KEY, title=f"Event - {event_name}", copy_permissions=True)
+                            
+                            # 2. Get the main events list sheet
                             events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
                             
+                            # 3. Prepare the new row with all data
                             new_event_data = [
-                                str(demo_date), event_name, domain, description, external_url,
-                                'No', 'No', whatsapp, new_sheet_copy.url
+                                str(demo_date), event_name, domain, description, 
+                                '', # URL - To be filled by Admin
+                                'No', # Approved_Status
+                                'No', # Conducted_State
+                                '', # WhatsappLink - To be filled by Admin
+                                new_sheet_copy.url,
+                                sample_report_template, sample_ppt_template, sample_code_link,
+                                sample_linkedin_post, sample_youtube_link, sample_titles,
+                                sample_descriptions, sample_tools, sample_keywords
                             ]
+                            
+                            # 4. Add the new row
                             events_sheet.append_row(new_event_data)
                             logger.info(f"Leader '{st.session_state['username']}' created new event '{event_name}' for approval.")
                             st.success("Event submitted for admin approval!")
                             st.info(f"A new Google Sheet for this event has been created: {new_sheet_copy.url}")
+
+                        except gspread.exceptions.APIError as e:
+                            if e.response.status_code == 404:
+                                st.error("Error: The template spreadsheet was not found. Please ensure the 'EVENT_TEMPLATE_SPREADSHEET_KEY' is correct and that the template sheet is shared with the service account email.")
+                                logger.error(f"Failed to copy template sheet (404 Not Found). Check key and permissions.")
+                            else:
+                                st.error(f"An API error occurred: {e}")
+                                logger.error(f"API error during event creation for '{event_name}': {e}")
                         except Exception as e:
-                            st.error(f"An error occurred: {e}. Ensure the template sheet ID is correct and shared with the service account.")
+                            st.error(f"An unexpected error occurred: {e}. Ensure the template sheet ID is correct and shared with the service account.")
                             logger.error(f"Failed to create new event sheet for '{event_name}': {e}")
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -611,10 +636,9 @@ def show_student_dashboard():
     events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
     if not events_sheet: 
         return
-    events_df = pd.DataFrame(events_sheet.get_all_records(head=0))
+    events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
     logger.info(f"Debug (Student Dashboard): Columns read from 'Project_Demos_List' sheet: {events_df.columns.tolist()}")
-    #st.write(events_df.head(), len(events_df))
-    #st.write(events_df.columns)
+    
     approved_col = 'Approved_Status'
     conducted_col = 'Conducted_State'
     
@@ -816,10 +840,10 @@ def show_evaluator_ui():
     events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
     if not events_sheet: 
         return
-    events_df = pd.DataFrame(events_sheet.get_all_records(head=0))
+    events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
     logger.info(f"Debug (Evaluator UI): Columns read from 'Project_Demos_List' sheet: {events_df.columns.tolist()}")
-    if len(events_df) <= 1:
-        st.info("No active events available for evaluation")
+    if len(events_df) < 1:
+        st.info("No events available for evaluation.")
         return
     active_events = events_df[(events_df['Approved_Status'] == 'Yes') & (events_df['Conducted_State'] == 'No')]
     
