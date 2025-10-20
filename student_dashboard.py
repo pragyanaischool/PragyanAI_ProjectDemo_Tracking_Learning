@@ -285,7 +285,7 @@ def render_ai_tools():
         if st.button("Generate Quiz from Notes"):
             with st.spinner("Generating quiz..."):
                 try:
-                    llm = ChatGroq(temperature=0.3, groq_api_key=api_key, model_name="llama3-70b-8192")
+                    llm = ChatGroq(temperature=0.3, groq_api_key=api_key, model_name="llama-3.3-70b-versatile"")
                     quiz_prompt = ChatPromptTemplate.from_template("""Based on the following notes, create a multiple-choice quiz with 5 questions. For each question, provide 4 options (A, B, C, D) and specify the correct answer on a new line.
                     Format each question exactly like this example:
                     Q1: What is the main topic?
