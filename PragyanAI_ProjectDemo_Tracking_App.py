@@ -417,7 +417,7 @@ def show_admin_dashboard():
         users_sheet = get_worksheet_by_key(client, USERS_ADMIN_SPREADSHEET_KEY, "User")
         if not users_sheet: 
             return
-        users_df = pd.DataFrame(users_sheet.get_all_records(head=0))
+        users_df = pd.DataFrame(users_sheet.get_all_records(head=1))
         logger.info(f"Debug (Admin User Mgt): Columns read from 'User' sheet: {users_df.columns.tolist()}")
 
         if len(users_df) <= 1:
