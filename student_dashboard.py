@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import datetime
+import re
 from utils import (
     connect_to_google_sheets, 
     get_worksheet_by_key, 
@@ -23,15 +24,44 @@ except ImportError:
     LLM_LIBRARIES_LOADED = False
 
 
-def render_notice_board(active_events):
+def render_notice_board(client, active_events, all_events):
     st.subheader("📢 Notice Board")
     st.markdown('<div class="card">', unsafe_allow_html=True)
+    
+    # --- Upcoming Events ---
+    st.write("**Upcoming Project Demo Events:**")
     if not active_events.empty:
-        st.write("**Upcoming Project Demo Events:**")
         for index, event in active_events.iterrows():
             st.markdown(f"- **{event['ProjectDemo_Event_Name']}** on `{event['Demo_Date']}` in the domain of `{event['Domain']}`.")
     else:
         st.info("There are no active project demo events scheduled.")
+    
+    st.markdown("---")
+    
+    # --- Your Enrolled Events ---
+    st.write("**Your Upcoming Project Demos:**")
+    user_info = st.session_state['user_details']
+    my_enrollments = []
+    for index, event in all_events.iterrows():
+        sheet_url = event.get('Project_Demo_Sheet_Link')
+        if sheet_url and event['Approved_Status'].lower() == 'yes' and event['Conducted_State'].lower() == 'no':
+            try:
+                workbook = client.open_by_url(sheet_url)
+                submissions = pd.DataFrame(workbook.worksheet("Project_List").get_all_records(head=1))
+                if not submissions.empty and 'StudentFullName' in submissions.columns:
+                    user_projects = submissions[submissions['StudentFullName'] == user_info['FullName']]
+                    if not user_projects.empty:
+                        project_titles = ", ".join(user_projects['ProjectTitle'].unique())
+                        my_enrollments.append(f"- **{event['ProjectDemo_Event_Name']}**: Enrolled with project(s) *'{project_titles}'*.")
+            except Exception:
+                continue
+    
+    if my_enrollments:
+        for enrollment in my_enrollments:
+            st.markdown(enrollment)
+    else:
+        st.info("You are not currently enrolled in any upcoming demos.")
+        
     st.markdown('</div>', unsafe_allow_html=True)
 
 
@@ -89,7 +119,6 @@ def render_update_form(client, events_df):
     st.markdown('<div class="card">', unsafe_allow_html=True)
     user_info = st.session_state['user_details']
     
-    # Find events the user has enrolled in
     enrolled_projects = []
     for index, event in events_df.iterrows():
         sheet_url = event.get('Project_Demo_Sheet_Link')
@@ -97,19 +126,24 @@ def render_update_form(client, events_df):
             try:
                 workbook = client.open_by_url(sheet_url)
                 submissions = pd.DataFrame(workbook.worksheet("Project_List").get_all_records(head=1))
-                user_submissions = submissions[submissions['StudentFullName'] == user_info['FullName']]
-                if not user_submissions.empty:
-                    for i, submission in user_submissions.iterrows():
-                        enrolled_projects.append(f"{event['ProjectDemo_Event_Name']} - {submission['ProjectTitle']}")
+                if 'StudentFullName' in submissions.columns:
+                    user_submissions = submissions[submissions['StudentFullName'] == user_info['FullName']]
+                    if not user_submissions.empty:
+                        for i, submission in user_submissions.iterrows():
+                            # Create a unique identifier for each submission to handle multiple projects in one event
+                            enrolled_projects.append(f"{event['ProjectDemo_Event_Name']} - {submission['ProjectTitle']}")
             except Exception:
                 continue
     
-    if not enrolled_projects:
-        st.info("You have not enrolled in any projects yet. Please enroll in the 'Notice Board & Enroll' tab first.")
+    # Get unique project identifiers
+    unique_enrolled_projects = sorted(list(set(enrolled_projects)))
+
+    if not unique_enrolled_projects:
+        st.info("You have not enrolled in any projects yet. Please enroll first.")
         st.markdown('</div>', unsafe_allow_html=True)
         return
 
-    project_choice_str = st.selectbox("Select your project to update", options=enrolled_projects)
+    project_choice_str = st.selectbox("Select your project to update", options=unique_enrolled_projects)
     
     if project_choice_str:
         event_name, project_title = project_choice_str.split(' - ', 1)
@@ -121,7 +155,6 @@ def render_update_form(client, events_df):
             event_workbook = client.open_by_url(sheet_url)
             submission_sheet = event_workbook.worksheet("Project_List")
             submissions_df = pd.DataFrame(submission_sheet.get_all_records(head=1))
-            # Get the latest submission for this project
             latest_submission = submissions_df[(submissions_df['StudentFullName'] == user_info['FullName']) & (submissions_df['ProjectTitle'] == project_title)].iloc[-1]
         except Exception as e:
             st.error(f"Could not load your project details. Error: {e}")
@@ -129,7 +162,7 @@ def render_update_form(client, events_df):
             return
 
         with st.form("update_project_form"):
-            st.info("Each time you submit, a new version of your project details is saved.")
+            st.info("Each time you submit, a new version of your project details is saved as a new row.")
             st.write(f"**Project:** {latest_submission['ProjectTitle']}")
             st.write(f"**Description:** {latest_submission['Description']}")
 
@@ -144,7 +177,6 @@ def render_update_form(client, events_df):
             update_button = st.form_submit_button("Save New Version")
             if update_button:
                 with st.spinner("Saving new version..."):
-                    # Create a new row by copying old data and updating with new
                     new_version_data = latest_submission.values.tolist()
                     new_version_data[6] = tools_list
                     new_version_data[7] = report_link
@@ -156,8 +188,31 @@ def render_update_form(client, events_df):
                     submission_sheet.append_row(new_version_data)
                     logger.info(f"User '{user_info['FullName']}' added a new version for project '{project_title}'.")
                     st.success("New version of your project details has been saved!")
-    
     st.markdown('</div>', unsafe_allow_html=True)
+
+
+def parse_quiz_from_markdown(md_text):
+    questions = []
+    # Regex to find questions, options, and the correct answer
+    pattern = re.compile(r"Q\d+: (.+?)\n(A\) .+?)\n(B\) .+?)\n(C\) .+?)\n(D\) .+?)\nANSWER: ([A-D])", re.DOTALL)
+    matches = pattern.finditer(md_text)
+    for match in matches:
+        question_text = match.group(1).strip()
+        options = [opt.strip() for opt in [match.group(2), match.group(3), match.group(4), match.group(5)]]
+        correct_answer_letter = match.group(6).strip()
+        # Find the full text of the correct answer
+        correct_answer = ""
+        for opt in options:
+            if opt.startswith(correct_answer_letter + ')'):
+                correct_answer = opt
+                break
+        
+        questions.append({
+            "question": question_text,
+            "options": options,
+            "answer": correct_answer
+        })
+    return questions
 
 
 def render_ai_tools():
@@ -177,76 +232,140 @@ def render_ai_tools():
         return
 
     report_file = st.file_uploader("Upload Report (PDF)", type=['pdf'])
-    ppt_file = st.file_uploader("Upload Presentation (PDF)", type=['pdf'])
     web_links = st.text_area("Add web material links (one URL per line)")
 
-    if st.button("Generate Study Notes"):
-        if not (report_file or ppt_file or web_links):
+    if "generated_content" not in st.session_state:
+        st.session_state.generated_content = {}
+
+    generate_notes_button = st.button("Generate Study Notes")
+
+    if generate_notes_button:
+        if not (report_file or web_links):
             st.error("Please provide at least one document or link.")
         else:
-            with st.spinner("Reading documents and generating notes... This may take a moment."):
+            with st.spinner("Reading documents and generating notes..."):
                 try:
-                    # Document Loading and Processing
                     docs = []
                     if report_file:
                         with open(report_file.name, "wb") as f: f.write(report_file.getbuffer())
                         loader = PyPDFLoader(report_file.name)
-                        docs.extend(loader.load())
-                    if ppt_file:
-                        with open(ppt_file.name, "wb") as f: f.write(ppt_file.getbuffer())
-                        loader = PyPDFLoader(ppt_file.name)
                         docs.extend(loader.load())
                     if web_links:
                         for link in web_links.strip().split('\n'):
                             loader = WebBaseLoader(link)
                             docs.extend(loader.load())
                     
-                    # Text Splitting
                     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
                     splits = text_splitter.split_documents(docs)
                     
-                    # LLM and Prompt
                     llm = ChatGroq(temperature=0.2, groq_api_key=api_key, model_name="llama3-70b-8192")
-                    notes_prompt = ChatPromptTemplate.from_template(
-                        """You are an expert teacher and content creator. Based on the provided context, generate a comprehensive set of study notes.
-                        Your notes must be well-structured, clear, and detailed.
-                        - Start with a high-level summary of the main topic.
-                        - Identify and explain all key topics, sub-topics, and core concepts.
-                        - For each concept, provide a clear definition and examples.
-                        - If code is mentioned, provide sample code snippets with explanations.
-                        - Use Markdown for formatting (headings, bold text, lists).
-
-                        Context:
-                        {context}
-                        """
-                    )
+                    notes_prompt = ChatPromptTemplate.from_template("""You are an expert teacher. Based on the context, generate comprehensive study notes. Explain all key topics, sub-topics, concepts with examples and code samples if applicable. Use detailed Markdown formatting. Context: {context}""")
                     
-                    # Create RAG Chain for Notes
                     embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
                     vectorstore = FAISS.from_documents(documents=splits, embedding=embeddings)
                     retriever = vectorstore.as_retriever()
 
-                    rag_chain = (
-                        {"context": retriever, "question": RunnablePassthrough()}
-                        | notes_prompt
-                        | llm
-                        | StrOutputParser()
-                    )
+                    rag_chain = ({"context": retriever, "question": RunnablePassthrough()} | notes_prompt | llm | StrOutputParser())
                     
-                    # Invoke and store in session state
                     notes = rag_chain.invoke("Generate the study notes based on the full context.")
-                    st.session_state.generated_notes = notes
+                    st.session_state.generated_content['notes'] = notes
+                    st.session_state.generated_content['quiz'] = None # Reset quiz
                     logger.info("AI Notes generated successfully.")
                     st.success("Study notes generated!")
-
                 except Exception as e:
-                    st.error(f"An error occurred during note generation: {e}")
+                    st.error(f"An error occurred: {e}")
                     logger.error(f"AI Notes generation failed: {e}")
 
-    if 'generated_notes' in st.session_state:
+    if st.session_state.generated_content.get('notes'):
+        st.markdown("---")
         st.subheader("Generated Notes")
-        st.markdown(st.session_state.generated_notes)
-        st.download_button("Download Notes", st.session_state.generated_notes, "study_notes.md", "text/markdown")
+        st.markdown(st.session_state.generated_content['notes'])
+        st.download_button("Download Notes", st.session_state.generated_content['notes'], "study_notes.md", "text/markdown")
+
+        if st.button("Generate Quiz from Notes"):
+            with st.spinner("Generating quiz..."):
+                try:
+                    llm = ChatGroq(temperature=0.3, groq_api_key=api_key, model_name="llama3-70b-8192")
+                    quiz_prompt = ChatPromptTemplate.from_template("""Based on the following notes, create a multiple-choice quiz with 5 questions. For each question, provide 4 options (A, B, C, D) and specify the correct answer on a new line.
+                    Format each question exactly like this example:
+                    Q1: What is the main topic?
+                    A) Option 1
+                    B) Option 2
+                    C) Option 3
+                    D) Option 4
+                    ANSWER: B
+
+                    Notes:
+                    {notes}""")
+                    quiz_chain = quiz_prompt | llm | StrOutputParser()
+                    quiz_md = quiz_chain.invoke({"notes": st.session_state.generated_content['notes']})
+                    
+                    parsed_quiz = parse_quiz_from_markdown(quiz_md)
+                    if not parsed_quiz:
+                        st.error("The AI failed to generate a quiz in the correct format. Please try again.")
+                        logger.error(f"Failed to parse quiz from markdown: {quiz_md}")
+                    else:
+                        st.session_state.generated_content['quiz'] = parsed_quiz
+                        st.session_state.generated_content['quiz_md'] = quiz_md
+                        logger.info("AI Quiz generated successfully.")
+                        st.success("Quiz generated! Go to the 'Take Quiz' tab to start.")
+                except Exception as e:
+                    st.error(f"An error occurred during quiz generation: {e}")
+                    logger.error(f"AI Quiz generation failed: {e}")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def render_take_quiz():
+    st.subheader("🧠 Take the Quiz")
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+
+    if 'generated_content' not in st.session_state or not st.session_state.generated_content.get('quiz'):
+        st.info("Please generate notes and then a quiz in the 'AI Notes & Quiz' tab first.")
+        st.markdown('</div>', unsafe_allow_html=True)
+        return
+
+    quiz = st.session_state.generated_content['quiz']
+    
+    if 'quiz_score' not in st.session_state:
+        st.session_state.quiz_score = 0
+        st.session_state.current_question_index = 0
+
+    index = st.session_state.current_question_index
+
+    if index < len(quiz):
+        question_item = quiz[index]
+        st.write(f"**Question {index + 1}/{len(quiz)}:** {question_item['question']}")
+        
+        # The options need to be stripped of their 'A) ' prefix for the radio button labels
+        option_labels = [opt[3:] for opt in question_item['options']]
+        user_answer = st.radio("Choose your answer:", option_labels, key=f"q_{index}")
+
+        if st.button("Submit Answer"):
+            # Find the full option text that matches the selected label
+            selected_option_full = ""
+            for opt in question_item['options']:
+                if opt.endswith(user_answer):
+                    selected_option_full = opt
+                    break
+            
+            if selected_option_full == question_item['answer']:
+                st.success("Correct!")
+                st.session_state.quiz_score += 1
+            else:
+                st.error(f"Incorrect. The correct answer was: {question_item['answer']}")
+            
+            st.session_state.current_question_index += 1
+            st.rerun()
+
+    else:
+        st.success(f"**Quiz Complete!** Your final score: {st.session_state.quiz_score}/{len(quiz)}")
+        st.balloons()
+        if st.button("Restart Quiz"):
+            # Reset quiz state
+            del st.session_state.quiz_score
+            del st.session_state.current_question_index
+            st.rerun()
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -267,17 +386,24 @@ def show_student_dashboard():
     
     active_events = events_df[(events_df['Approved_Status'].str.lower() == 'yes') & (events_df['Conducted_State'].str.lower() == 'no')]
 
-    tab1, tab2, tab3 = st.tabs(["📢 Notice Board & Enroll", "✏️ Update Project Details", "🤖 AI Notes & Quiz"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📢 Notice Board", 
+        "🚀 Enroll in Event",
+        "✏️ Update Project", 
+        "🤖 AI Notes Generator",
+        "🧠 Take Quiz"
+    ])
 
     with tab1:
-        render_notice_board(active_events)
-        render_enrollment_form(client, active_events)
-
+        render_notice_board(client, active_events, events_df)
     with tab2:
-        render_update_form(client, events_df)
-    
+        render_enrollment_form(client, active_events)
     with tab3:
+        render_update_form(client, events_df)
+    with tab4:
         render_ai_tools()
+    with tab5:
+        render_take_quiz()
 
 def show_evaluator_ui():
     st.title("📝 PragyanAI - Peer Project Evaluation")
