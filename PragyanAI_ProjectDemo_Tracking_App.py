@@ -8,6 +8,35 @@ import uuid
 import datetime
 import base64
 import os
+import logging
+
+# --- LOGGING SETUP ---
+def setup_logger():
+    """Sets up a logger to write to app_log.txt."""
+    logger = logging.getLogger('pragyanai_app')
+    logger.setLevel(logging.INFO)
+    
+    # Prevent logs from propagating to the root logger
+    logger.propagate = False
+    
+    # Avoid adding handlers if they already exist
+    if not logger.handlers:
+        # Create a file handler to write to a file, mode 'w' overwrites the file on each run
+        handler = logging.FileHandler('app_log.txt', mode='w')
+        handler.setLevel(logging.INFO)
+        
+        # Create a logging format
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        
+        # Add the handler to the logger
+        logger.addHandler(handler)
+        
+    return logger
+
+logger = setup_logger()
+logger.info("Application starting up.")
+
 
 # --- LLM & RAG Imports ---
 # NOTE: You need to install the following packages:
@@ -22,8 +51,10 @@ try:
     from langchain_core.prompts import ChatPromptTemplate
     from langchain_core.runnables import RunnablePassthrough
     from langchain_core.output_parsers import StrOutputParser
-except ImportError:
+    logger.info("Successfully imported LLM & RAG libraries.")
+except ImportError as e:
     st.error("LLM dependencies are not installed. Please run: pip install -r requirements.txt")
+    logger.error(f"Failed to import LLM libraries: {e}")
 
 
 # --- PAGE CONFIGURATION ---
@@ -128,22 +159,25 @@ def connect_to_google_sheets():
         # Try connecting using Streamlit secrets (for deployment)
         creds_json = dict(st.secrets["gcp_service_account"])
         creds = Credentials.from_service_account_info(creds_json, scopes=SCOPES)
-        # st.info("Connecting to Google Sheets using Streamlit Secrets.")
+        logger.info("Connecting to Google Sheets using Streamlit Secrets.")
     except Exception:
         # Fallback to a local file if secrets are not found (for local development)
         local_creds_path = "gcp_creds.json"
         if os.path.exists(local_creds_path):
             creds = Credentials.from_service_account_file(local_creds_path, scopes=SCOPES)
-            # st.info("Connecting to Google Sheets using local 'gcp_creds.json' file.")
+            logger.info("Connecting to Google Sheets using local 'gcp_creds.json' file.")
         else:
             st.error("Google Sheets credentials not found. Please configure your Streamlit secrets or add a 'gcp_creds.json' file.")
+            logger.error("Google Sheets credentials not found in Streamlit secrets or local 'gcp_creds.json'.")
             return None
     
     try:
         client = gspread.authorize(creds)
+        logger.info("Successfully authorized with Google Sheets.")
         return client
     except Exception as e:
         st.error(f"Failed to authorize with Google Sheets. Error: {e}")
+        logger.error(f"Failed to authorize with Google Sheets: {e}")
         return None
 
 # --- HELPER FUNCTIONS ---
@@ -151,15 +185,20 @@ def get_worksheet_by_key(client, key, worksheet_name):
     """Safely opens a worksheet by spreadsheet key and worksheet name."""
     try:
         spreadsheet = client.open_by_key(key)
-        return spreadsheet.worksheet(worksheet_name)
+        worksheet = spreadsheet.worksheet(worksheet_name)
+        logger.info(f"Successfully opened worksheet '{worksheet_name}' from spreadsheet key '{key}'.")
+        return worksheet
     except gspread.exceptions.SpreadsheetNotFound:
         st.error(f"Spreadsheet with key '{key}' not found. Please check the key and sharing settings.")
+        logger.error(f"Spreadsheet with key '{key}' not found.")
         return None
     except gspread.exceptions.WorksheetNotFound:
         st.error(f"Worksheet '{worksheet_name}' not found in the spreadsheet.")
+        logger.error(f"Worksheet '{worksheet_name}' not found in spreadsheet key '{key}'.")
         return None
     except Exception as e:
         st.error(f"An error occurred while accessing the sheet: {e}")
+        logger.error(f"An error occurred while accessing worksheet '{worksheet_name}': {e}")
         return None
 
 
@@ -177,7 +216,9 @@ def create_user(details):
     if not users_sheet: return False, "Users sheet not accessible."
 
     users_df = pd.DataFrame(users_sheet.get_all_records(head=1))
+    logger.info(f"Debug (Create User): Columns read from 'User' sheet: {users_df.columns.tolist()}")
     if not users_df.empty and (details['UserName'] in users_df['UserName'].values or str(details['Phone(login)']) in users_df['Phone(login)'].astype(str).values):
+        logger.warning(f"Attempt to create existing user: {details['UserName']} or phone: {details['Phone(login)']}")
         return False, "Username or Login Phone already exists."
 
     new_user_data = [
@@ -188,6 +229,7 @@ def create_user(details):
         hash_password(details['Password']), 'NotApproved', 'Student'
     ]
     users_sheet.append_row(new_user_data)
+    logger.info(f"New user created: {details['UserName']}. Pending approval.")
     return True, "Account created! Please wait for admin approval."
 
 def authenticate_user(login_identifier, password):
@@ -206,27 +248,35 @@ def authenticate_user(login_identifier, password):
     if not users_sheet: return None
     
     users_df = pd.DataFrame(users_sheet.get_all_records(head=1))
-    if users_df.empty: return "not_found"
+    logger.info(f"Debug (Authenticate User): Columns read from 'User' sheet: {users_df.columns.tolist()}")
+    if users_df.empty: 
+        logger.warning("Authentication attempt on empty 'User' sheet.")
+        return "not_found"
 
     required_cols = ['UserName', 'Phone(login)', 'Password', 'Status(Approved/NotApproved)']
     if not all(col in users_df.columns for col in required_cols):
         st.error("The 'User' sheet is missing required columns. Please check headers.")
+        logger.error(f"Missing required columns in 'User' sheet. Required: {required_cols}")
         return None
 
     user_record_df = users_df[(users_df['UserName'] == login_identifier) | (users_df['Phone(login)'].astype(str) == str(login_identifier))]
     
     if user_record_df.empty:
+        logger.warning(f"Login attempt failed: User '{login_identifier}' not found.")
         return "not_found"
     
     user_data = user_record_df.iloc[0]
     
     if check_password(user_data['Password'], password):
         if str(user_data['Status(Approved/NotApproved)']).strip().lower() == 'approved':
+            logger.info(f"Successful login for user: '{login_identifier}'.")
             return user_data  # Success
         else:
+            logger.warning(f"Login attempt for '{login_identifier}' failed: Account not approved.")
             st.warning("Your account is not approved or is pending approval.")
             return "pending"
     else:
+        logger.warning(f"Login attempt for '{login_identifier}' failed: Invalid password.")
         return "invalid_password"
 
 def authenticate_admin(username, password):
@@ -236,25 +286,32 @@ def authenticate_admin(username, password):
     if not admin_sheet: return None
     
     admins_df = pd.DataFrame(admin_sheet.get_all_records(head=1))
-    if admins_df.empty: return None
+    logger.info(f"Debug (Authenticate Admin): Columns read from 'Admin' sheet: {admins_df.columns.tolist()}")
+    if admins_df.empty: 
+        logger.error("Admin authentication attempt on empty 'Admin' sheet.")
+        return None
 
     if 'UserName' not in admins_df.columns or 'Password' not in admins_df.columns:
         st.error("The 'Admin' sheet is missing required columns ('UserName', 'Password').")
+        logger.error("Missing 'UserName' or 'Password' columns in 'Admin' sheet.")
         return None
 
     admin_record = admins_df[admins_df['UserName'] == username]
     if not admin_record.empty:
         admin_data = admin_record.iloc[0]
         if admin_data['Password'] == password:
+            logger.info(f"Successful admin login for: '{username}'.")
             return admin_data
+    logger.warning(f"Failed admin login attempt for user: '{username}'.")
     return None
 
 # --- UI PAGES ---
 def show_login_page():
     try:
         st.image("PragyanAI_Transperent.png", width=150)
-    except Exception:
+    except Exception as e:
         st.warning("Logo image 'PragyanAI_Transperent.png' not found. Please add it to the root directory.")
+        logger.warning(f"Could not load logo image: {e}")
         
     st.title("🏆 PragyanAI Project Demo Tracking Platform")
     st.markdown("<br>", unsafe_allow_html=True)
@@ -352,7 +409,7 @@ def show_admin_dashboard():
     client = connect_to_google_sheets()
     if not client: return
 
-    tab1, tab2 = st.tabs(["👤 User Management", "🗓️ Event Management"])
+    tab1, tab2, tab3 = st.tabs(["👤 User Management", "🗓️ Event Management", "⚙️ System Logs"])
 
     with tab1:
         st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -360,6 +417,7 @@ def show_admin_dashboard():
         users_sheet = get_worksheet_by_key(client, USERS_ADMIN_SPREADSHEET_KEY, "User")
         if not users_sheet: return
         users_df = pd.DataFrame(users_sheet.get_all_records(head=1))
+        logger.info(f"Debug (Admin User Mgt): Columns read from 'User' sheet: {users_df.columns.tolist()}")
         
         status_col = 'Status(Approved/NotApproved)'
         role_col = 'Role(Student/Lead)'
@@ -377,6 +435,7 @@ def show_admin_dashboard():
                 for user in users_to_approve:
                     cell = users_sheet.find(user)
                     users_sheet.update_cell(cell.row, 11, 'Approved')
+                logger.info(f"Admin '{st.session_state['username']}' approved users: {users_to_approve}")
                 st.success("Selected users approved.")
                 st.rerun()
         else:
@@ -392,6 +451,7 @@ def show_admin_dashboard():
             if st.button("Promote to Leader"):
                 cell = users_sheet.find(user_to_make_leader)
                 users_sheet.update_cell(cell.row, 12, 'Lead')
+                logger.info(f"Admin '{st.session_state['username']}' promoted '{user_to_make_leader}' to Leader.")
                 st.success(f"{user_to_make_leader} is now a Leader.")
                 st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
@@ -403,6 +463,7 @@ def show_admin_dashboard():
             if st.button("Revoke Access", type="primary"):
                 cell = users_sheet.find(user_to_revoke)
                 users_sheet.update_cell(cell.row, 11, 'Revoked')
+                logger.warning(f"Admin '{st.session_state['username']}' revoked access for '{user_to_revoke}'.")
                 st.warning(f"Access for {user_to_revoke} has been revoked.")
                 st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
@@ -413,6 +474,7 @@ def show_admin_dashboard():
         events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
         if not events_sheet: return
         events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
+        logger.info(f"Debug (Admin Event Mgt): Columns read from 'Project_Demos_List' sheet: {events_df.columns.tolist()}")
         
         if 'Approved_Status' not in events_df.columns:
             st.error("Critical Error: 'Approved_Status' column not found in 'Project_Demos_List' sheet.")
@@ -424,6 +486,7 @@ def show_admin_dashboard():
             if st.button("Approve Event"):
                 cell = events_sheet.find(event_to_approve)
                 events_sheet.update_cell(cell.row, 6, 'Yes')
+                logger.info(f"Admin '{st.session_state['username']}' approved event '{event_to_approve}'.")
                 st.success(f"Event '{event_to_approve}' approved.")
                 st.rerun()
         else:
@@ -450,8 +513,27 @@ def show_admin_dashboard():
                     cell = events_sheet.find(event_to_modify)
                     events_sheet.update_cell(cell.row, 8, whatsapp_link)
                     events_sheet.update_cell(cell.row, 7, conducted_status)
+                    logger.info(f"Admin '{st.session_state['username']}' updated event '{event_to_modify}'.")
                     st.success("Event updated.")
                     st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+    with tab3:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("Application Log")
+        log_file = 'app_log.txt'
+        if os.path.exists(log_file):
+            with open(log_file, 'r') as f:
+                log_content = f.read()
+            st.code(log_content, language='log')
+            st.download_button(
+                label="Download Log File",
+                data=log_content,
+                file_name="pragyanai_app_log.txt",
+                mime="text/plain"
+            )
+        else:
+            st.info("Log file not found. It will be created when the application performs actions.")
         st.markdown('</div>', unsafe_allow_html=True)
 
 def show_leader_dashboard():
@@ -489,10 +571,12 @@ def show_leader_dashboard():
                                 'No', 'No', whatsapp, new_sheet_copy.url
                             ]
                             events_sheet.append_row(new_event_data)
+                            logger.info(f"Leader '{st.session_state['username']}' created new event '{event_name}' for approval.")
                             st.success("Event submitted for admin approval!")
                             st.info(f"A new Google Sheet for this event has been created: {new_sheet_copy.url}")
                         except Exception as e:
                             st.error(f"An error occurred: {e}. Ensure the template sheet ID is correct and shared with the service account.")
+                            logger.error(f"Failed to create new event sheet for '{event_name}': {e}")
         st.markdown('</div>', unsafe_allow_html=True)
 
     with tab2:
@@ -501,6 +585,7 @@ def show_leader_dashboard():
         events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
         if not events_sheet: return
         events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
+        logger.info(f"Debug (Leader Mgt): Columns read from 'Project_Demos_List' sheet: {events_df.columns.tolist()}")
         my_events = events_df
         st.dataframe(my_events, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -515,8 +600,8 @@ def show_student_dashboard():
     events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
     if not events_sheet: return
     events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
+    logger.info(f"Debug (Student Dashboard): Columns read from 'Project_Demos_List' sheet: {events_df.columns.tolist()}")
     
-    # --- FIX STARTS HERE ---
     approved_col = 'Approved_Status'
     conducted_col = 'Conducted_State'
     
@@ -524,9 +609,8 @@ def show_student_dashboard():
         st.error(f"Critical Error: Your 'Project_Demos_List' sheet is missing required columns.")
         st.info(f"Please ensure the headers '{approved_col}' and '{conducted_col}' exist exactly as written.")
         st.write("Columns found in your sheet:", events_df.columns.tolist())
-        return # Stop the function to prevent crashing.
-    # --- FIX ENDS HERE ---
-
+        return
+    
     active_events = events_df[(events_df[approved_col] == 'Yes') & (events_df[conducted_col] == 'No')]
     
     if active_events.empty:
@@ -548,8 +632,10 @@ def show_student_dashboard():
             event_workbook = client.open_by_url(sheet_url)
             submission_sheet = event_workbook.worksheet("Project_List") 
             submissions_df = pd.DataFrame(submission_sheet.get_all_records(head=1))
+            logger.info(f"Debug (Student Enrollment): Columns read from '{event_choice}' -> 'Project_List' sheet: {submissions_df.columns.tolist()}")
         except Exception as e:
             st.error(f"Could not open the event sheet. Please check the URL, permissions, and ensure a 'Project_List' worksheet exists. Error: {e}")
+            logger.error(f"Failed to open event sheet for '{event_choice}': {e}")
             return
             
         my_submission = pd.DataFrame()
@@ -583,9 +669,11 @@ def show_student_dashboard():
                 if not my_submission.empty:
                     cell = submission_sheet.find(user_info['FullName'])
                     submission_sheet.update(f'A{cell.row}:T{cell.row}', [submission_data])
+                    logger.info(f"User '{user_info['FullName']}' updated their project '{project_title}' in event '{event_choice}'.")
                     st.success("Your project details have been updated!")
                 else:
                     submission_sheet.append_row(submission_data)
+                    logger.info(f"User '{user_info['FullName']}' enrolled with project '{project_title}' in event '{event_choice}'.")
                     st.success("You have successfully enrolled in the event!")
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -601,6 +689,7 @@ def show_peer_learning_page():
         events_sheet = get_worksheet_by_key(_client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
         if not events_sheet: return pd.DataFrame()
         events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
+        logger.info(f"Debug (Peer Learning): Columns read from 'Project_Demos_List' sheet: {events_df.columns.tolist()}")
         
         all_projects = []
         for index, event in events_df.iterrows():
@@ -609,10 +698,12 @@ def show_peer_learning_page():
                 try:
                     workbook = _client.open_by_url(sheet_url)
                     submissions = pd.DataFrame(workbook.worksheet("Project_List").get_all_records(head=1))
+                    logger.info(f"Debug (Peer Learning): Columns from event '{event['ProjectDemo_Event_Name']}' -> 'Project_List': {submissions.columns.tolist()}")
                     if not submissions.empty:
                         submissions['EventName'] = event['ProjectDemo_Event_Name']
                         all_projects.append(submissions)
-                except Exception:
+                except Exception as e:
+                    logger.error(f"Failed to load projects from event '{event['ProjectDemo_Event_Name']}': {e}")
                     continue 
         if not all_projects:
             return pd.DataFrame()
@@ -668,6 +759,7 @@ def show_peer_learning_page():
         if question:
             with st.spinner("Analyzing document and generating answer..."):
                 try:
+                    logger.info(f"Starting RAG process for URL: {report_url} with question: '{question}'")
                     loader = WebBaseLoader(report_url)
                     docs = loader.load()
                     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
@@ -693,10 +785,12 @@ def show_peer_learning_page():
                     )
                     
                     response = rag_chain.invoke(question)
+                    logger.info(f"RAG process completed successfully.")
                     st.success("Answer:")
                     st.write(response)
                 except Exception as e:
                     st.error(f"Failed to process the document. Error: {e}")
+                    logger.error(f"RAG process failed for URL {report_url}: {e}")
     st.markdown('</div>', unsafe_allow_html=True)
 
 
@@ -709,6 +803,7 @@ def show_evaluator_ui():
     events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
     if not events_sheet: return
     events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
+    logger.info(f"Debug (Evaluator UI): Columns read from 'Project_Demos_List' sheet: {events_df.columns.tolist()}")
     
     active_events = events_df[(events_df['Approved_Status'] == 'Yes') & (events_df['Conducted_State'] == 'No')]
     
@@ -728,8 +823,10 @@ def show_evaluator_ui():
         try:
             workbook = client.open_by_url(sheet_url)
             submissions_df = pd.DataFrame(workbook.worksheet("Project_List").get_all_records(head=1))
+            logger.info(f"Debug (Evaluator UI): Columns from event '{event_choice}' -> 'Project_List': {submissions_df.columns.tolist()}")
         except Exception as e:
             st.error(f"Could not open the event sheet. Please check the URL, permissions, and ensure a 'Project_List' worksheet exists. Error: {e}")
+            logger.error(f"Failed to open sheet for evaluation in event '{event_choice}': {e}")
             return
         
         if 'StudentFullName' not in submissions_df.columns:
@@ -757,6 +854,7 @@ def show_evaluator_ui():
                         st.session_state['username']
                     ]
                     eval_sheet.append_row(eval_data)
+                    logger.info(f"User '{st.session_state['username']}' submitted evaluation for '{candidate}' with score {avg_score}.")
                     st.success(f"Evaluation for {candidate} submitted with an average score of {avg_score:.2f}!")
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -805,6 +903,7 @@ def main():
             st.sidebar.divider()
             if st.sidebar.button("Logout"):
                 st.session_state.clear()
+                logger.info(f"User '{st.session_state.get('username', 'unknown')}' logged out.")
                 st.rerun()
 
         # Page rendering
@@ -831,4 +930,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
