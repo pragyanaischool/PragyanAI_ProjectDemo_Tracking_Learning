@@ -191,31 +191,43 @@ def create_user(details):
     return True, "Account created! Please wait for admin approval."
 
 def authenticate_user(login_identifier, password):
+    """
+    Authenticates a user against the 'User' sheet.
+    Returns:
+    - pd.Series object: On successful authentication.
+    - "not_found": If the user does not exist.
+    - "invalid_password": If the password is incorrect.
+    - "pending": If the password is correct but the account is not approved.
+    - None: On connection or other critical errors.
+    """
     client = connect_to_google_sheets()
     if not client: return None
     users_sheet = get_worksheet_by_key(client, USERS_ADMIN_SPREADSHEET_KEY, "User")
     if not users_sheet: return None
     
     users_df = pd.DataFrame(users_sheet.get_all_records(head=1))
-    if users_df.empty: return None
+    if users_df.empty: return "not_found"
 
-    # Defensive check for required columns
     required_cols = ['UserName', 'Phone(login)', 'Password', 'Status(Approved/NotApproved)']
     if not all(col in users_df.columns for col in required_cols):
-        st.error("The 'User' sheet is missing required columns. Please check the sheet headers.")
+        st.error("The 'User' sheet is missing required columns. Please check headers.")
         return None
 
     user_record_df = users_df[(users_df['UserName'] == login_identifier) | (users_df['Phone(login)'].astype(str) == str(login_identifier))]
     
-    if not user_record_df.empty:
-        user_data = user_record_df.iloc[0]
-        if check_password(user_data['Password'], password):
-            if user_data['Status(Approved/NotApproved)'] == 'Approved':
-                return user_data
-            else:
-                st.warning("Your account is pending approval.")
-                return "pending"
-    return None
+    if user_record_df.empty:
+        return "not_found"
+    
+    user_data = user_record_df.iloc[0]
+    
+    if check_password(user_data['Password'], password):
+        if str(user_data['Status(Approved/NotApproved)']).strip().lower() == 'approved':
+            return user_data  # Success
+        else:
+            st.warning("Your account is not approved or is pending approval.")
+            return "pending"
+    else:
+        return "invalid_password"
 
 def authenticate_admin(username, password):
     client = connect_to_google_sheets()
@@ -226,7 +238,6 @@ def authenticate_admin(username, password):
     admins_df = pd.DataFrame(admin_sheet.get_all_records(head=1))
     if admins_df.empty: return None
 
-    # Defensive check for required columns
     if 'UserName' not in admins_df.columns or 'Password' not in admins_df.columns:
         st.error("The 'Admin' sheet is missing required columns ('UserName', 'Password').")
         return None
@@ -234,7 +245,6 @@ def authenticate_admin(username, password):
     admin_record = admins_df[admins_df['UserName'] == username]
     if not admin_record.empty:
         admin_data = admin_record.iloc[0]
-        # Assuming admin passwords are NOT hashed in the sheet for simplicity, but hashing is recommended
         if admin_data['Password'] == password:
             return admin_data
     return None
@@ -265,15 +275,21 @@ def show_login_page():
 
                 if login_button:
                     user_data = authenticate_user(login_identifier, login_password)
-                    if user_data is not None and user_data != "pending":
+
+                    if isinstance(user_data, pd.Series):
+                        # Successful login
                         st.session_state['logged_in'] = True
                         st.session_state['username'] = user_data['UserName']
                         st.session_state['role'] = user_data['Role(Student/Lead)']
                         st.session_state['is_admin'] = False
                         st.session_state['user_details'] = user_data.to_dict()
                         st.rerun()
-                    elif user_data is None:
-                        st.error("Invalid credentials.")
+                    elif user_data == "not_found":
+                        st.error("User does not exist. Please check your username/phone or sign up.")
+                    elif user_data == "invalid_password":
+                        st.error("Invalid credentials. Please check your password.")
+                    # The 'pending' case is handled by a warning inside authenticate_user.
+                    # The 'None' case indicates a sheet connection error, already handled.
         
         with signup_tab:
             with st.form("signup_form"):
@@ -345,8 +361,6 @@ def show_admin_dashboard():
         if not users_sheet: return
         users_df = pd.DataFrame(users_sheet.get_all_records(head=1))
         
-        # --- FIX STARTS HERE ---
-        # Check if the critical columns exist before proceeding.
         status_col = 'Status(Approved/NotApproved)'
         role_col = 'Role(Student/Lead)'
         
@@ -354,16 +368,15 @@ def show_admin_dashboard():
             st.error(f"Critical Error: Your 'User' sheet is missing required columns.")
             st.info(f"Please ensure the headers '{status_col}' and '{role_col}' exist exactly as written.")
             st.write("Columns found in your sheet:", users_df.columns.tolist())
-            return # Stop the function to prevent crashing.
-        # --- FIX ENDS HERE ---
-
+            return
+        
         pending_users = users_df[users_df[status_col] == 'NotApproved']
         if not pending_users.empty:
             users_to_approve = st.multiselect("Select users to approve", options=pending_users['UserName'].tolist())
             if st.button("Approve Selected Users"):
                 for user in users_to_approve:
                     cell = users_sheet.find(user)
-                    users_sheet.update_cell(cell.row, 11, 'Approved') # Column K
+                    users_sheet.update_cell(cell.row, 11, 'Approved')
                 st.success("Selected users approved.")
                 st.rerun()
         else:
@@ -378,7 +391,7 @@ def show_admin_dashboard():
             user_to_make_leader = st.selectbox("Select user to promote to Leader", options=students['UserName'].tolist())
             if st.button("Promote to Leader"):
                 cell = users_sheet.find(user_to_make_leader)
-                users_sheet.update_cell(cell.row, 12, 'Lead') # Column L
+                users_sheet.update_cell(cell.row, 12, 'Lead')
                 st.success(f"{user_to_make_leader} is now a Leader.")
                 st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
@@ -410,7 +423,7 @@ def show_admin_dashboard():
             event_to_approve = st.selectbox("Select event to approve", options=pending_events['ProjectDemo_Event_Name'].tolist())
             if st.button("Approve Event"):
                 cell = events_sheet.find(event_to_approve)
-                events_sheet.update_cell(cell.row, 6, 'Yes') # Column F in Project_Demos_List
+                events_sheet.update_cell(cell.row, 6, 'Yes')
                 st.success(f"Event '{event_to_approve}' approved.")
                 st.rerun()
         else:
@@ -435,8 +448,8 @@ def show_admin_dashboard():
                 submitted = st.form_submit_button("Update Event Details")
                 if submitted:
                     cell = events_sheet.find(event_to_modify)
-                    events_sheet.update_cell(cell.row, 8, whatsapp_link) # Column H
-                    events_sheet.update_cell(cell.row, 7, conducted_status) # Column G
+                    events_sheet.update_cell(cell.row, 8, whatsapp_link)
+                    events_sheet.update_cell(cell.row, 7, conducted_status)
                     st.success("Event updated.")
                     st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
@@ -468,10 +481,7 @@ def show_leader_dashboard():
                 else:
                     with st.spinner("Creating event and new sheet..."):
                         try:
-                            # Copy the template spreadsheet
                             new_sheet_copy = client.copy(EVENT_TEMPLATE_SPREADSHEET_KEY, title=f"Event - {event_name}", copy_permissions=True)
-                            
-                            # Get the main events list sheet
                             events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
                             
                             new_event_data = [
@@ -491,7 +501,6 @@ def show_leader_dashboard():
         events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
         if not events_sheet: return
         events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
-        # A more robust check for leader's events might be needed if names are not unique
         my_events = events_df
         st.dataframe(my_events, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -526,7 +535,6 @@ def show_student_dashboard():
 
         try:
             event_workbook = client.open_by_url(sheet_url)
-            # Corrected worksheet name
             submission_sheet = event_workbook.worksheet("Project_List") 
             submissions_df = pd.DataFrame(submission_sheet.get_all_records(head=1))
         except Exception as e:
@@ -554,18 +562,15 @@ def show_student_dashboard():
             submitted = st.form_submit_button("Submit / Update Enrollment")
             if submitted:
                 user_info = st.session_state['user_details']
-                # Data should match the columns in the 'Project_List' sheet
                 submission_data = [
                     user_info['FullName'], user_info['CollegeName'], user_info['Branch'],
                     project_title, description, keywords, tools_list,
                     report_link, ppt_link, github_link, youtube_link, linkedin_link,
-                    'No', '', '', '', '', '', '', '' # Default values for remaining columns
+                    'No', '', '', '', '', '', '', ''
                 ]
                 
                 if not my_submission.empty:
                     cell = submission_sheet.find(user_info['FullName'])
-                    # This needs to update the entire row, not just one cell. gspread update is tricky with whole rows.
-                    # A safer way is to delete and re-append, but let's try updating a range.
                     submission_sheet.update(f'A{cell.row}:T{cell.row}', [submission_data])
                     st.success("Your project details have been updated!")
                 else:
@@ -592,7 +597,6 @@ def show_peer_learning_page():
             if sheet_url:
                 try:
                     workbook = _client.open_by_url(sheet_url)
-                    # Corrected worksheet name
                     submissions = pd.DataFrame(workbook.worksheet("Project_List").get_all_records(head=1))
                     if not submissions.empty:
                         submissions['EventName'] = event['ProjectDemo_Event_Name']
@@ -712,7 +716,6 @@ def show_evaluator_ui():
         
         try:
             workbook = client.open_by_url(sheet_url)
-            # Corrected worksheet name
             submissions_df = pd.DataFrame(workbook.worksheet("Project_List").get_all_records(head=1))
         except Exception as e:
             st.error(f"Could not open the event sheet. Please check the URL, permissions, and ensure a 'Project_List' worksheet exists. Error: {e}")
@@ -735,7 +738,6 @@ def show_evaluator_ui():
                 submitted = st.form_submit_button("Submit Evaluation")
                 if submitted:
                     avg_score = (score1 + score2 + score3 + score4) / 4
-                    # Corrected worksheet name
                     eval_sheet = workbook.worksheet("ProjectEvaluation")
                     eval_data = [
                         candidate,
@@ -779,12 +781,15 @@ def main():
             st.sidebar.divider()
 
             # Navigation
+            if 'page' not in st.session_state:
+                st.session_state.page = None
+
             if st.session_state.get('role') == 'Admin':
-                page = st.sidebar.radio("Navigation", ["Admin Dashboard", "Leader Dashboard", "Student Dashboard", "Peer Learning", "Evaluate Peer Project"])
+                st.session_state.page = st.sidebar.radio("Navigation", ["Admin Dashboard", "Leader Dashboard", "Student Dashboard", "Peer Learning", "Evaluate Peer Project"], key='admin_nav')
             elif st.session_state.get('role') == 'Lead':
-                page = st.sidebar.radio("Navigation", ["Leader Dashboard", "Student Dashboard", "Peer Learning", "Evaluate Peer Project"])
+                st.session_state.page = st.sidebar.radio("Navigation", ["Leader Dashboard", "Student Dashboard", "Peer Learning", "Evaluate Peer Project"], key='lead_nav')
             else: # Student
-                page = st.sidebar.radio("Navigation", ["Student Dashboard", "Peer Learning", "Evaluate Peer Project"])
+                st.session_state.page = st.sidebar.radio("Navigation", ["Student Dashboard", "Peer Learning", "Evaluate Peer Project"], key='student_nav')
 
             st.sidebar.divider()
             if st.sidebar.button("Logout"):
@@ -815,4 +820,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
