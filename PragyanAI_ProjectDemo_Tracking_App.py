@@ -415,10 +415,14 @@ def show_admin_dashboard():
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Approve New Users")
         users_sheet = get_worksheet_by_key(client, USERS_ADMIN_SPREADSHEET_KEY, "User")
-        if not users_sheet: return
-        users_df = pd.DataFrame(users_sheet.get_all_records(head=1))
+        if not users_sheet: 
+            return
+        users_df = pd.DataFrame(users_sheet.get_all_records(head=0))
         logger.info(f"Debug (Admin User Mgt): Columns read from 'User' sheet: {users_df.columns.tolist()}")
-        
+
+        if len(users_df) <= 1:
+            st.info("Still No Project Event Exist - Please add and revisit")
+            return
         status_col = 'Status(Approved/NotApproved)'
         role_col = 'Role(Student/Lead)'
         
