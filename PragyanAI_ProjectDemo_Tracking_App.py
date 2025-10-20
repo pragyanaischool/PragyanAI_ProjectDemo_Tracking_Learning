@@ -803,10 +803,13 @@ def show_evaluator_ui():
     if not client: return
     
     events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
-    if not events_sheet: return
-    events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
+    if not events_sheet: 
+        return
+    events_df = pd.DataFrame(events_sheet.get_all_records(head=0))
     logger.info(f"Debug (Evaluator UI): Columns read from 'Project_Demos_List' sheet: {events_df.columns.tolist()}")
-    
+    if len(events_df) <= 1:
+        st.info("No active events available for evaluation")
+        return
     active_events = events_df[(events_df['Approved_Status'] == 'Yes') & (events_df['Conducted_State'] == 'No')]
     
     if active_events.empty:
