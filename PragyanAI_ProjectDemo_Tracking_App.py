@@ -474,54 +474,78 @@ def show_admin_dashboard():
 
     with tab2:
         st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("Approve New Project Demo Events")
+        st.subheader("Manage & Approve Project Demo Events")
         events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
         if not events_sheet: return
         events_df = pd.DataFrame(events_sheet.get_all_records(head=1))
         logger.info(f"Debug (Admin Event Mgt): Columns read from 'Project_Demos_List' sheet: {events_df.columns.tolist()}")
         
-        if 'Approved_Status' not in events_df.columns:
-            st.error("Critical Error: 'Approved_Status' column not found in 'Project_Demos_List' sheet.")
-            return
-
-        pending_events = events_df[events_df['Approved_Status'] == 'No']
-        if not pending_events.empty:
-            event_to_approve = st.selectbox("Select event to approve", options=pending_events['ProjectDemo_Event_Name'].tolist())
-            if st.button("Approve Event"):
-                cell = events_sheet.find(event_to_approve)
-                events_sheet.update_cell(cell.row, 6, 'Yes')
-                logger.info(f"Admin '{st.session_state['username']}' approved event '{event_to_approve}'.")
-                st.success(f"Event '{event_to_approve}' approved.")
-                st.rerun()
-        else:
-            st.info("No events pending approval.")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("Modify Existing Event")
-        if 'ProjectDemo_Event_Name' not in events_df.columns:
-            st.error("Critical Error: 'ProjectDemo_Event_Name' column not found in 'Project_Demos_List' sheet.")
+        required_cols = ['ProjectDemo_Event_Name', 'Approved_Status', 'Conducted_State']
+        if not all(col in events_df.columns for col in required_cols):
+            st.error("Critical Error: 'Project_Demos_List' sheet is missing one or more required columns.")
+            st.write("Required columns:", required_cols)
+            st.write("Columns found:", events_df.columns.tolist())
             return
             
-        all_events = events_df['ProjectDemo_Event_Name'].tolist()
-        if all_events:
-            event_to_modify = st.selectbox("Select event to modify", options=all_events, key="modify_event_select")
-            event_details = events_df[events_df['ProjectDemo_Event_Name'] == event_to_modify].iloc[0]
-
-            with st.form("admin_modify_event"):
-                whatsapp_link = st.text_input("WhatsApp Link", value=event_details.get('WhatsappLink', ''))
-                conducted_status = st.selectbox("Conducted Status", options=["No", "Yes"], index=["No", "Yes"].index(event_details.get('Conducted_State', 'No')))
-                
-                submitted = st.form_submit_button("Update Event Details")
-                if submitted:
-                    cell = events_sheet.find(event_to_modify)
-                    events_sheet.update_cell(cell.row, 8, whatsapp_link)
-                    events_sheet.update_cell(cell.row, 7, conducted_status)
-                    logger.info(f"Admin '{st.session_state['username']}' updated event '{event_to_modify}'.")
-                    st.success("Event updated.")
-                    st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+        event_to_manage = st.selectbox("Select an event to manage", options=events_df['ProjectDemo_Event_Name'].tolist())
         
+        if event_to_manage:
+            event_details = events_df[events_df['ProjectDemo_Event_Name'] == event_to_manage].iloc[0]
+
+            with st.form("admin_manage_event_form"):
+                st.write(f"**Status:** {event_details.get('Approved_Status', 'N/A')} | **Conducted:** {event_details.get('Conducted_State', 'N/A')}")
+                
+                st.subheader("Add/Update Event Details")
+                sheet_link = st.text_input("Project Demo Sheet Link*", value=event_details.get('Project_Demo_Sheet_Link', ''))
+                whatsapp_link = st.text_input("WhatsApp Group Link", value=event_details.get('WhatsappLink', ''))
+                external_url = st.text_input("External URL", value=event_details.get('URL', ''))
+                
+                st.subheader("Sample Materials (Editable)")
+                sample_report_template = st.text_input("Sample Report Template Link", value=event_details.get('Sample_Report_Template_Links', ''))
+                sample_ppt_template = st.text_input("Sample Presentation Template Link", value=event_details.get('Sample_Presentation_Links', ''))
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    approve_button = st.form_submit_button("Save and Approve Event")
+                with col2:
+                    update_button = st.form_submit_button("Save Changes Only")
+
+                if update_button:
+                    # Logic to update the sheet
+                    cell = events_sheet.find(event_to_manage)
+                    # Update a range of cells to be more efficient
+                    events_sheet.update(f'D{cell.row}:S{cell.row}', [[
+                        event_details.get('BriefDescription'), external_url, event_details.get('Approved_Status'),
+                        event_details.get('Conducted_State'), whatsapp_link, sheet_link, sample_report_template, sample_ppt_template,
+                        event_details.get('Sample_Project_Code_Github_Links'), event_details.get('Sample_Linkedin_Post_Links'),
+                        event_details.get('Sample_Project_Demo_YouTube_Links'), event_details.get('Sample_Project_Titles'),
+                        event_details.get('Sample_Project_Description'), event_details.get('Sample_Project_ToolsList'),
+                        event_details.get('Sample_Project_KeyWords')
+                    ]])
+                    logger.info(f"Admin '{st.session_state['username']}' updated event '{event_to_manage}'.")
+                    st.success("Event details updated successfully!")
+                    st.rerun()
+
+                if approve_button:
+                    if not sheet_link:
+                        st.error("You must provide a 'Project Demo Sheet Link' before approving the event.")
+                    else:
+                        cell = events_sheet.find(event_to_manage)
+                        # Update all fields and set status to 'Yes'
+                        events_sheet.update(f'D{cell.row}:S{cell.row}', [[
+                            event_details.get('BriefDescription'), external_url, 'Yes', # Set Approved to Yes
+                            event_details.get('Conducted_State'), whatsapp_link, sheet_link, sample_report_template, sample_ppt_template,
+                            event_details.get('Sample_Project_Code_Github_Links'), event_details.get('Sample_Linkedin_Post_Links'),
+                            event_details.get('Sample_Project_Demo_YouTube_Links'), event_details.get('Sample_Project_Titles'),
+                            event_details.get('Sample_Project_Description'), event_details.get('Sample_Project_ToolsList'),
+                            event_details.get('Sample_Project_KeyWords')
+                        ]])
+                        logger.info(f"Admin '{st.session_state['username']}' approved event '{event_to_manage}'.")
+                        st.success(f"Event '{event_to_manage}' has been approved and details updated!")
+                        st.rerun()
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
     with tab3:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.subheader("Application Log")
@@ -550,69 +574,34 @@ def show_leader_dashboard():
 
     with tab1:
         st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.header("Create New Project Demo Event")
+        st.header("Create New Project Demo Event (Stage 1)")
         with st.form("leader_create_event"):
-            st.write("Provide details for the new demo event. It will require Admin approval before it's visible to students.")
+            st.write("Provide the initial details for the new demo event. An Admin will complete the setup and approve it.")
             
-            st.subheader("Core Event Details")
             event_name = st.text_input("Project Event Name*")
             demo_date = st.date_input("Demo Date*")
             domain = st.text_input("Domain (e.g., AI/ML, Web Development)*")
             description = st.text_area("Brief Description*")
 
-            st.subheader("Sample Materials & Links (Optional)")
-            sample_report_template = st.text_input("Sample Report Template Link")
-            sample_ppt_template = st.text_input("Sample Presentation Template Link")
-            sample_code_link = st.text_input("Sample Project Code (GitHub)")
-            sample_linkedin_post = st.text_input("Sample LinkedIn Post Link")
-            sample_youtube_link = st.text_input("Sample Project Demo (YouTube)")
-            sample_titles = st.text_area("Sample Project Titles (one per line)")
-            sample_descriptions = st.text_area("Sample Project Descriptions (one per line)")
-            sample_tools = st.text_input("Sample Tools List (comma-separated)")
-            sample_keywords = st.text_input("Sample Keywords (comma-separated)")
-            
-            submitted = st.form_submit_button("Submit for Approval")
+            submitted = st.form_submit_button("Submit for Admin Review")
             if submitted:
                 if not all([event_name, demo_date, domain, description]):
                     st.error("Please fill all required fields marked with *.")
                 else:
-                    with st.spinner("Creating event and new sheet..."):
+                    with st.spinner("Submitting event request..."):
                         try:
-                            # 1. Copy the template spreadsheet
-                            new_sheet_copy = client.copy(EVENT_TEMPLATE_SPREADSHEET_KEY, title=f"Event - {event_name}", copy_permissions=True)
-                            
-                            # 2. Get the main events list sheet
                             events_sheet = get_worksheet_by_key(client, EVENTS_SPREADSHEET_KEY, "Project_Demos_List")
-                            
-                            # 3. Prepare the new row with all data
+                            # Create a new row with placeholders for Admin-filled data
                             new_event_data = [
                                 str(demo_date), event_name, domain, description, 
-                                '', # URL - To be filled by Admin
-                                'No', # Approved_Status
-                                'No', # Conducted_State
-                                '', # WhatsappLink - To be filled by Admin
-                                new_sheet_copy.url,
-                                sample_report_template, sample_ppt_template, sample_code_link,
-                                sample_linkedin_post, sample_youtube_link, sample_titles,
-                                sample_descriptions, sample_tools, sample_keywords
+                                '', 'No', 'No', '', '', '', '', '', '', '', '', '', '', ''
                             ]
-                            
-                            # 4. Add the new row
                             events_sheet.append_row(new_event_data)
                             logger.info(f"Leader '{st.session_state['username']}' created new event '{event_name}' for approval.")
-                            st.success("Event submitted for admin approval!")
-                            st.info(f"A new Google Sheet for this event has been created: {new_sheet_copy.url}")
-
-                        except gspread.exceptions.APIError as e:
-                            if e.response.status_code == 404:
-                                st.error("Error: The template spreadsheet was not found. Please ensure the 'EVENT_TEMPLATE_SPREADSHEET_KEY' is correct and that the template sheet is shared with the service account email.")
-                                logger.error(f"Failed to copy template sheet (404 Not Found). Check key and permissions.")
-                            else:
-                                st.error(f"An API error occurred: {e}")
-                                logger.error(f"API error during event creation for '{event_name}': {e}")
+                            st.success("Event submitted for admin review and setup!")
                         except Exception as e:
-                            st.error(f"An unexpected error occurred: {e}. Ensure the template sheet ID is correct and shared with the service account.")
-                            logger.error(f"Failed to create new event sheet for '{event_name}': {e}")
+                            st.error(f"An unexpected error occurred: {e}")
+                            logger.error(f"Failed to create new event request for '{event_name}': {e}")
         st.markdown('</div>', unsafe_allow_html=True)
 
     with tab2:
