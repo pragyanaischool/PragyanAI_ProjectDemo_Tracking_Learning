@@ -362,7 +362,7 @@ def show_login_page():
                 password = st.text_input("Choose a Password", type="password")
                 confirm_password = st.text_input("Confirm Password", type="password")
                 st.markdown("<br>", unsafe_allow_html=True)
-                signup_button = st.form_submit_button("Create Account", use_container_width=True)
+                signup_button = st.form_submit_button("Create Account", width='stretch')
 
                 if signup_button:
                     if not all([full_name, college, branch, roll_no, pass_year, phone_login, username, password]):
@@ -388,7 +388,7 @@ def show_login_page():
                 admin_user = st.text_input("Admin Username", key="admin_user")
                 admin_pass = st.text_input("Admin Password", type="password", key="admin_pass")
                 st.markdown("<br>", unsafe_allow_html=True)
-                admin_login_button = st.form_submit_button("Admin Login", use_container_width=True)
+                admin_login_button = st.form_submit_button("Admin Login", width='stretch')
                 if admin_login_button:
                     admin_data = authenticate_admin(admin_user, admin_pass)
                     if admin_data is not None:
